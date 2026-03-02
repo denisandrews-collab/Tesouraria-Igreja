@@ -1,0 +1,5 @@
+{
+  "name": "Tesouraria Digital",
+  "description": "Sistema simples para registro de dízimos e ofertas com envio de comprovante via WhatsApp.",
+  "requestFramePermissions": []
+}

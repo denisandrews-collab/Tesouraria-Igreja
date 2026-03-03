@@ -13,12 +13,21 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-let analytics;
+let app;
+let db: any;
+let analytics: any;
+
+try {
+  console.log("Iniciando Firebase com config:", firebaseConfig.projectId);
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  console.log("Firebase initialized successfully");
+} catch (error) {
+  console.error("Firebase initialization failed:", error);
+}
 
 // Analytics only works in browser environment and if supported
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && app) {
   isSupported().then(yes => {
     if (yes) {
       analytics = getAnalytics(app);

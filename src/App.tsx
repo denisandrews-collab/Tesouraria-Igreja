@@ -256,20 +256,35 @@ export default function App() {
 
   const fetchEntries = async () => {
     try {
-      // Try Firestore first
-      const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const data = querySnapshot.docs.map(doc => ({ 
-          id: doc.id, 
-          ...doc.data() 
-        })) as Entry[];
-        setEntries(data);
-        return;
+      // Try Firestore with timeout if db is available
+      const fetchFromFirestore = async () => {
+        if (!db) return null;
+        const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          return querySnapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+          })) as Entry[];
+        }
+        return null;
+      };
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 5000)
+      );
+
+      try {
+        const data = await Promise.race([fetchFromFirestore(), timeoutPromise]) as Entry[] | null;
+        if (data) {
+          setEntries(data);
+          return;
+        }
+      } catch (fsError) {
+        console.error("Firestore fetch failed, falling back to local:", fsError);
       }
 
-      // Fallback to local API if Firestore is empty or fails
+      // Fallback to local API
       const response = await fetch("/api/entries");
       const data = await response.json();
       setEntries(data);
@@ -296,8 +311,8 @@ export default function App() {
     }
     
     try {
-      // Try Firestore first if ID is string
-      if (typeof id === "string") {
+      // Try Firestore first if ID is string and db is available
+      if (typeof id === "string" && db) {
         const entryRef = doc(db, "entries", id);
         await updateDoc(entryRef, {
           is_reversed: 1,
@@ -364,21 +379,20 @@ export default function App() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!formData.treasurer.trim()) {
-      addNotification("warning", "Por favor, informe o nome do tesoureiro.", "Campo Obrigatório");
-      return;
-    }
-    
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      addNotification("warning", "Por favor, informe um valor válido maior que zero.", "Valor Inválido");
-      return;
-    }
-
-    setSubmitting(true);
-    
     try {
+      e.preventDefault();
+      console.log("Botão Salvar clicado");
+      
+      if (!formData.treasurer.trim()) {
+        addNotification("warning", "Por favor, informe o nome do tesoureiro.", "Campo Obrigatório");
+        return;
+      }
+      
+      if (!formData.amount || parseFloat(formData.amount) <= 0) {
+        addNotification("warning", "Por favor, informe um valor válido maior que zero.", "Valor Inválido");
+        return;
+      }
+
       const entryData = {
         ...formData,
         amount: parseFloat(formData.amount),
@@ -388,9 +402,26 @@ export default function App() {
         created_at: new Date().toISOString()
       };
 
-      // Try Firestore first
+      setSubmitting(true);
+      console.log("Iniciando salvamento...", entryData);
+      
+      // Try Firestore with a timeout if db is available
+      const saveToFirestore = async () => {
+        if (!db) throw new Error("Database not initialized");
+        console.log("Tentando salvar no Firebase...");
+        const docRef = await addDoc(collection(db, "entries"), entryData);
+        console.log("Salvo no Firebase com ID:", docRef.id);
+        return docRef;
+      };
+
       try {
-        await addDoc(collection(db, "entries"), entryData);
+        // Timeout de 5 segundos para o Firebase
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout no Firebase")), 5000)
+        );
+        
+        await Promise.race([saveToFirestore(), timeoutPromise]);
+        
         setSuccess(true);
         addNotification("success", "O lançamento foi registrado com sucesso no Firebase.", "Lançamento Salvo");
         setFormData({
@@ -406,19 +437,26 @@ export default function App() {
         }, 2000);
         return;
       } catch (fsError) {
-        console.error("Firestore save failed, falling back to local:", fsError);
+        console.error("Erro no Firebase, tentando salvar localmente:", fsError);
+        addNotification("info", "Firebase indisponível, salvando localmente...", "Sincronização");
       }
 
       // Fallback to local API
+      console.log("Tentando salvar localmente...");
+      const controller = new AbortController();
+      const localTimeout = setTimeout(() => controller.abort(), 8000);
+      
       const response = await fetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           ...formData,
           amount: parseFloat(formData.amount),
           counts: Object.keys(counts).length > 0 ? counts : null
         })
       });
+      clearTimeout(localTimeout);
 
       if (response.ok) {
         setSuccess(true);
@@ -440,7 +478,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error saving entry:", error);
-      addNotification("error", "Não foi possível conectar ao servidor.", "Erro de Conexão");
+      addNotification("error", "Ocorreu um erro inesperado ao salvar.", "Erro Crítico");
     } finally {
       setSubmitting(false);
     }

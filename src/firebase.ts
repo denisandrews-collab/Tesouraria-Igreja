@@ -1,25 +1,24 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: "AIzaSyB4dM36D8qivpsdFeeFOuZDwuo7cH6XL5A",
+  authDomain: "tesouraria-c4c80.firebaseapp.com",
+  projectId: "tesouraria-c4c80",
+  storageBucket: "tesouraria-c4c80.firebasestorage.app",
+  messagingSenderId: "913740165790",
+  appId: "1:913740165790:web:0175b42424f5e84774818f",
+  measurementId: "G-NHMMWH2RSC"
 };
 
-// Initialize Firebase only if config is present
-let app;
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 let analytics;
 
-if (firebaseConfig.apiKey) {
-  app = initializeApp(firebaseConfig);
-  console.log("Firebase Client initialized");
-  
-  // Analytics only works in browser environment and if supported
+// Analytics only works in browser environment and if supported
+if (typeof window !== "undefined") {
   isSupported().then(yes => {
     if (yes) {
       analytics = getAnalytics(app);
@@ -28,4 +27,4 @@ if (firebaseConfig.apiKey) {
   });
 }
 
-export { app, analytics };
+export { app, db, analytics };

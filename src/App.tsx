@@ -38,7 +38,17 @@ import {
   XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import "./firebase"; // Initialize Firebase client
+import { db } from "./firebase"; // Import Firestore db
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  orderBy, 
+  updateDoc, 
+  doc,
+  Timestamp
+} from "firebase/firestore";
 import { 
   BarChart, 
   Bar, 
@@ -58,7 +68,7 @@ import {
 } from "recharts";
 
 interface Entry {
-  id: number;
+  id: string | number;
   treasurer: string;
   date: string;
   type: "Dízimo" | "Oferta";
@@ -246,17 +256,39 @@ export default function App() {
 
   const fetchEntries = async () => {
     try {
+      // Try Firestore first
+      const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const data = querySnapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          ...doc.data() 
+        })) as Entry[];
+        setEntries(data);
+        return;
+      }
+
+      // Fallback to local API if Firestore is empty or fails
       const response = await fetch("/api/entries");
       const data = await response.json();
       setEntries(data);
     } catch (error) {
       console.error("Error fetching entries:", error);
+      // Fallback to local API on error
+      try {
+        const response = await fetch("/api/entries");
+        const data = await response.json();
+        setEntries(data);
+      } catch (e) {
+        console.error("Local fallback failed:", e);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const reverseEntry = async (id: number) => {
+  const reverseEntry = async (id: string | number) => {
     const reason = prompt("Por favor, informe o motivo do estorno (OBRIGATÓRIO):");
     if (!reason || reason.trim() === "") {
       alert("O motivo do estorno é obrigatório.");
@@ -264,6 +296,20 @@ export default function App() {
     }
     
     try {
+      // Try Firestore first if ID is string
+      if (typeof id === "string") {
+        const entryRef = doc(db, "entries", id);
+        await updateDoc(entryRef, {
+          is_reversed: 1,
+          reversal_reason: reason
+        });
+        fetchEntries();
+        setSelectedEntry(null);
+        addNotification("success", "O lançamento foi estornado com sucesso no Firebase.", "Estorno Realizado");
+        return;
+      }
+
+      // Fallback to local API
       const response = await fetch(`/api/entries/${id}/reverse`, { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -272,7 +318,7 @@ export default function App() {
       if (response.ok) {
         fetchEntries();
         setSelectedEntry(null);
-        addNotification("success", "O lançamento foi estornado com sucesso.", "Estorno Realizado");
+        addNotification("success", "O lançamento foi estornado com sucesso localmente.", "Estorno Realizado");
       }
     } catch (error) {
       console.error("Error reversing entry:", error);
@@ -333,6 +379,37 @@ export default function App() {
     setSubmitting(true);
     
     try {
+      const entryData = {
+        ...formData,
+        amount: parseFloat(formData.amount),
+        counts: Object.keys(counts).length > 0 ? JSON.stringify(counts) : null,
+        is_reversed: 0,
+        reversal_reason: null,
+        created_at: new Date().toISOString()
+      };
+
+      // Try Firestore first
+      try {
+        await addDoc(collection(db, "entries"), entryData);
+        setSuccess(true);
+        addNotification("success", "O lançamento foi registrado com sucesso no Firebase.", "Lançamento Salvo");
+        setFormData({
+          ...formData,
+          amount: "",
+          notes: ""
+        });
+        setCounts({});
+        fetchEntries();
+        setTimeout(() => {
+          setSuccess(false);
+          setActiveTab(userRole === "master" ? "history" : "dashboard");
+        }, 2000);
+        return;
+      } catch (fsError) {
+        console.error("Firestore save failed, falling back to local:", fsError);
+      }
+
+      // Fallback to local API
       const response = await fetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

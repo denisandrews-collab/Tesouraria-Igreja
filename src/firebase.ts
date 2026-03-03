@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, terminate } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB4dM36D8qivpsdFeeFOuZDwuo7cH6XL5A",
@@ -13,17 +13,18 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-let app;
+let app: any;
 let db: any;
 let analytics: any;
+let isFirebaseEnabled = false;
 
 try {
-  console.log("Iniciando Firebase com config:", firebaseConfig.projectId);
+  console.log("Iniciando Firebase...");
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
-  console.log("Firebase initialized successfully");
+  isFirebaseEnabled = true;
 } catch (error) {
-  console.error("Firebase initialization failed:", error);
+  console.error("Erro crítico na inicialização do Firebase:", error);
 }
 
 // Analytics only works in browser environment and if supported
@@ -31,9 +32,8 @@ if (typeof window !== "undefined" && app) {
   isSupported().then(yes => {
     if (yes) {
       analytics = getAnalytics(app);
-      console.log("Firebase Analytics initialized");
     }
   });
 }
 
-export { app, db, analytics };
+export { app, db, analytics, isFirebaseEnabled };

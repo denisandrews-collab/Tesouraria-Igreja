@@ -38,7 +38,7 @@ import {
   XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { db } from "./firebase"; // Import Firestore db
+import { db, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
 import { 
   collection, 
   addDoc, 
@@ -122,6 +122,7 @@ export default function App() {
   const [expandedDates, setExpandedDates] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
 
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -258,16 +259,25 @@ export default function App() {
     try {
       // Try Firestore with timeout if db is available
       const fetchFromFirestore = async () => {
-        if (!db) return null;
-        const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          return querySnapshot.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data() 
-          })) as Entry[];
+        if (!db || !isFirebaseEnabled) return null;
+        try {
+          const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
+          const querySnapshot = await getDocs(q);
+          setFirebaseStatus("online");
+          if (!querySnapshot.empty) {
+            return querySnapshot.docs.map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            })) as Entry[];
+          }
+          return []; // Return empty array if collection exists but is empty
+        } catch (e: any) {
+          if (e.message?.includes("Database '(default)' not found")) {
+            setFirebaseStatus("error");
+            console.warn("Firestore Database not created in console.");
+          }
+          throw e;
         }
-        return null;
       };
 
       const timeoutPromise = new Promise((_, reject) => 
@@ -588,6 +598,18 @@ export default function App() {
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
                 {churchName} <span className="text-indigo-600">Digital</span>
               </h1>
+              {firebaseStatus === "error" && (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  Nuvem Offline (Banco não criado)
+                </div>
+              )}
+              {firebaseStatus === "online" && (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                  <CheckCircle2 className="w-2.5 h-2.5" />
+                  Nuvem Conectada
+                </div>
+              )}
             </div>
             <p className="text-xs md:text-sm text-slate-500 font-medium ml-10 md:ml-13">Gestão Financeira Eclesiástica</p>
           </div>

@@ -71,6 +71,7 @@ interface Entry {
   id: string | number;
   treasurer: string;
   date: string;
+  period: string;
   type: "Dízimo" | "Oferta";
   amount: number;
   counts?: string; // JSON string of Record<number, string>
@@ -131,6 +132,7 @@ export default function App() {
   const [formData, setFormData] = useState({
     treasurer: "",
     date: new Date().toISOString().split("T")[0],
+    period: "Manhã" as "Manhã" | "Tarde" | "Noite",
     type: "Dízimo" as "Dízimo" | "Oferta",
     amount: "",
     notes: ""
@@ -369,24 +371,26 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    const headers = ["ID", "Data", "Tesoureiro", "Tipo", "Valor", "Observações", "Estornado", "Motivo Estorno"];
+    const headers = ["ID", "Data", "Período", "Tesoureiro", "Tipo", "Valor", "Observações", "Estornado", "Motivo Estorno"];
     const rows = filteredEntries.map(e => [
       e.id,
       (() => {
         const [y, m, d] = e.date.split("-");
         return `${d}/${m}/${y}`;
       })(),
+      e.period || "Manhã",
       e.treasurer,
       e.type,
-      e.amount.toFixed(2),
-      `"${(e.notes || "").replace(/"/g, '""')}"`,
+      e.amount.toFixed(2).replace('.', ','), // Use comma for decimal in Excel-friendly format
+      (e.notes || "").replace(/;/g, ' '), // Remove semicolons from notes to avoid breaking columns
       e.is_reversed ? "Sim" : "Não",
-      `"${(e.reversal_reason || "").replace(/"/g, '""')}"`
+      (e.reversal_reason || "").replace(/;/g, ' ')
     ]);
 
+    // Use semicolon as separator for better Excel compatibility in many regions
     const csvContent = [
-      headers.join(","),
-      ...rows.map(r => r.join(","))
+      headers.join(";"),
+      ...rows.map(r => r.join(";"))
     ].join("\n");
 
     const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
@@ -398,7 +402,7 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    addNotification("success", "O arquivo CSV foi gerado e baixado com sucesso.", "Exportação Concluída");
+    addNotification("success", "A planilha foi gerada e baixada com sucesso.", "Exportação Concluída");
   };
 
   const printReport = () => {
@@ -491,7 +495,8 @@ export default function App() {
         setFormData({
           ...formData,
           amount: "",
-          notes: ""
+          notes: "",
+          period: "Manhã"
         });
         setCounts({});
         fetchEntries();
@@ -524,6 +529,7 @@ export default function App() {
     let message = `*Comprovante de Lançamento*\n\n` +
       `👤 *Tesoureiro:* ${entry.treasurer}\n` +
       `📅 *Data:* ${formattedDate}\n` +
+      `🕒 *Período:* ${entry.period || "Manhã"}\n` +
       `🏷️ *Tipo:* ${entry.type}\n` +
       `💰 *Valor:* R$ ${entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
     
@@ -1088,6 +1094,28 @@ export default function App() {
 
                   <div className="space-y-1.5 md:space-y-2">
                     <label className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">
+                      Período do Evento
+                    </label>
+                    <div className="grid grid-cols-3 gap-2 md:gap-3">
+                      {(["Manhã", "Tarde", "Noite"] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, period: p })}
+                          className={`py-2.5 rounded-xl text-[9px] md:text-[10px] font-bold uppercase tracking-widest transition-all border-2 ${
+                            formData.period === p 
+                              ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100" 
+                              : "bg-white text-slate-500 border-slate-100 hover:border-slate-200"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 md:space-y-2">
+                    <label className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">
                       Observações
                     </label>
                     <textarea
@@ -1298,6 +1326,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-slate-50/50 border-b border-slate-100">
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Período</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tesoureiro</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Valor</th>
@@ -1317,6 +1346,11 @@ export default function App() {
                                   return `${d}/${m}/${y}`;
                                 })()}
                               </p>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                                {entry.period || "Manhã"}
+                              </span>
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">

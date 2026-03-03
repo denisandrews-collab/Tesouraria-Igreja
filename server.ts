@@ -50,7 +50,8 @@ const columns = [
   { name: "counts", type: "TEXT" },
   { name: "notes", type: "TEXT" },
   { name: "is_reversed", type: "INTEGER DEFAULT 0" },
-  { name: "reversal_reason", type: "TEXT" }
+  { name: "reversal_reason", type: "TEXT" },
+  { name: "period", type: "TEXT" }
 ];
 
 columns.forEach(col => {
@@ -100,7 +101,7 @@ async function startServer() {
   });
 
   app.post("/api/entries", async (req, res) => {
-    const { treasurer, date, type, amount, counts, notes } = req.body;
+    const { treasurer, date, type, amount, counts, notes, period } = req.body;
     
     if (!treasurer || !date || !type || !amount) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -112,6 +113,7 @@ async function startServer() {
         date,
         type,
         amount,
+        period: period || "Manhã",
         counts: counts ? JSON.stringify(counts) : null,
         notes: notes || null,
         is_reversed: 0,
@@ -125,8 +127,8 @@ async function startServer() {
         finalEntry = { id: docRef.id, ...entryData };
       } else {
         const info = db.prepare(
-          "INSERT INTO entries (treasurer, date, type, amount, counts, notes) VALUES (?, ?, ?, ?, ?, ?)"
-        ).run(treasurer, date, type, amount, counts ? JSON.stringify(counts) : null, notes || null);
+          "INSERT INTO entries (treasurer, date, type, amount, counts, notes, period) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(treasurer, date, type, amount, counts ? JSON.stringify(counts) : null, notes || null, period || "Manhã");
         finalEntry = { id: info.lastInsertRowid, ...entryData };
       }
       

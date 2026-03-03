@@ -119,10 +119,10 @@ export default function App() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
   const [showValues, setShowValues] = useState(true);
-  const [expandedDates, setExpandedDates] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
+  const [wsConnected, setWsConnected] = useState(false);
 
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -214,23 +214,40 @@ export default function App() {
     });
   }, [entries, searchTerm, filterType, dateRange]);
 
-  const consolidatedEntries = useMemo(() => {
-    const groups: Record<string, { date: string, type: string, total: number, entries: Entry[] }> = {};
-    
-    filteredEntries.forEach(entry => {
-      const key = `${entry.date}_${entry.type}`;
-      if (!groups[key]) {
-        groups[key] = { date: entry.date, type: entry.type, total: 0, entries: [] };
-      }
-      groups[key].total += entry.is_reversed ? 0 : entry.amount;
-      groups[key].entries.push(entry);
-    });
-
-    return Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [filteredEntries]);
-
   useEffect(() => {
     fetchEntries();
+    
+    // WebSocket setup for real-time notifications
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      console.log("WebSocket connected");
+      setWsConnected(true);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "NEW_ENTRY") {
+          addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
+          fetchEntries();
+        } else if (data.type === "ENTRY_REVERSED") {
+          addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
+          fetchEntries();
+        }
+      } catch (e) {
+        console.error("Error parsing WS message", e);
+      }
+    };
+
+    socket.onclose = () => {
+      console.log("WebSocket disconnected");
+      setWsConnected(false);
+    };
+
+    return () => socket.close();
   }, []);
 
   useEffect(() => {
@@ -274,9 +291,7 @@ export default function App() {
         } catch (e: any) {
           if (e.message?.includes("Database '(default)' not found")) {
             setFirebaseStatus("error");
-          } else if (e.message?.includes("insufficient permissions")) {
-            setFirebaseStatus("error");
-            console.warn("Firestore Security Rules are blocking access.");
+            console.warn("Firestore Database not created in console.");
           }
           throw e;
         }
@@ -559,12 +574,6 @@ export default function App() {
     }
   };
 
-  const toggleDateExpansion = (dateKey: string) => {
-    setExpandedDates(prev => 
-      prev.includes(dateKey) ? prev.filter(d => d !== dateKey) : [...prev, dateKey]
-    );
-  };
-
   const formatCurrency = (value: number) => {
     if (!showValues) return "R$ ••••";
     return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -603,13 +612,19 @@ export default function App() {
               {firebaseStatus === "error" && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
                   <AlertTriangle className="w-2.5 h-2.5" />
-                  Nuvem Offline (Verifique as Regras/Database)
+                  Nuvem Offline (Banco não criado)
                 </div>
               )}
               {firebaseStatus === "online" && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
                   <CheckCircle2 className="w-2.5 h-2.5" />
                   Nuvem Conectada
+                </div>
+              )}
+              {wsConnected && (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
+                  Tempo Real Ativo
                 </div>
               )}
             </div>
@@ -852,6 +867,12 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <History className="w-5 h-5 text-indigo-600" />
                         <h3 className="font-bold text-slate-900">Atividade Recente</h3>
+                        {wsConnected && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-md text-[8px] font-bold uppercase tracking-widest animate-pulse">
+                            <div className="w-1 h-1 bg-indigo-500 rounded-full" />
+                            Live
+                          </span>
+                        )}
                       </div>
                       <button 
                         onClick={() => setActiveTab("history")}
@@ -1110,9 +1131,19 @@ export default function App() {
                   </div>
 
                   <div className="space-y-1.5 md:space-y-2">
-                    <label className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">
-                      Valor Consolidado
-                    </label>
+                    <div className="flex items-center justify-between ml-1">
+                      <label className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        Valor Consolidado
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("calculator")}
+                        className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                      >
+                        <Calculator className="w-3 h-3" />
+                        Usar Calculadora de Espécie
+                      </button>
+                    </div>
                     <div className="relative group">
                       <div className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-indigo-500">R$</div>
                       <input
@@ -1163,7 +1194,7 @@ export default function App() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-2 md:gap-3">
                       <History className="w-5 h-5 md:w-6 md:h-6 text-indigo-600" />
-                      <h2 className="text-lg md:text-xl font-bold text-slate-900">Histórico Consolidado</h2>
+                      <h2 className="text-lg md:text-xl font-bold text-slate-900">Histórico de Lançamentos</h2>
                     </div>
                     <div className="flex items-center gap-2">
                       {userRole === "master" && (
@@ -1225,103 +1256,129 @@ export default function App() {
                           onClick={() => setFilterType(type)}
                           className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
                             filterType === type 
-                              ? "bg-white text-indigo-600 shadow-sm border border-slate-200" 
-                              : "text-slate-500 hover:text-slate-800"
+                              ? "bg-indigo-600 text-white shadow-sm" 
+                              : "bg-slate-50 text-slate-500 hover:text-slate-800"
                           }`}
                         >
                           {type}
                         </button>
                       ))}
                     </div>
+
+                    {filteredEntries.length > 0 && (
+                      <div className="flex items-center gap-4 px-4 py-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Total Filtrado</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">
+                            {formatCurrency(filteredEntries.reduce((acc, curr) => acc + (curr.is_reversed ? 0 : curr.amount), 0))}
+                          </p>
+                        </div>
+                        <div className="w-px h-8 bg-indigo-200/50" />
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Lançamentos</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">{filteredEntries.length}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                <div className="divide-y divide-slate-100">
+                <div className="overflow-x-auto">
                   {loading ? (
                     <div className="py-24 text-center">
                       <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4" />
                       <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Sincronizando...</span>
                     </div>
-                  ) : consolidatedEntries.length === 0 ? (
+                  ) : filteredEntries.length === 0 ? (
                     <div className="py-24 text-center opacity-30">
                       <Search className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                      <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhum registro</p>
+                      <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhum registro encontrado</p>
                     </div>
                   ) : (
-                    consolidatedEntries.map((group) => {
-                      const dateKey = `${group.date}_${group.type}`;
-                      const isExpanded = expandedDates.includes(dateKey);
-                      return (
-                        <div key={dateKey} className="group transition-colors">
-                          <div 
-                            onClick={() => toggleDateExpansion(dateKey)}
-                            className="flex items-center justify-between p-5 md:p-6 cursor-pointer hover:bg-slate-50"
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tesoureiro</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Valor</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center print:hidden">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {filteredEntries.map((entry) => (
+                          <tr 
+                            key={entry.id} 
+                            className={`group hover:bg-slate-50/50 transition-colors ${entry.is_reversed ? 'bg-rose-50/10' : ''}`}
                           >
-                            <div className="flex items-center gap-4">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                                group.type === "Dízimo" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-600"
-                              }`}>
-                                {group.type === "Dízimo" ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                              </div>
-                              <div>
-                                <h3 className="font-bold text-slate-900">
-                                  {(() => {
-                                    const [y, m, d] = group.date.split("-");
-                                    return `${d}/${m}/${y}`;
-                                  })()}
-                                </h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{group.type} • {group.entries.length} lançamentos</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <p className="text-lg font-bold tabular-nums text-slate-900">
-                                {formatCurrency(group.total)}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <p className="text-sm font-bold text-slate-900">
+                                {(() => {
+                                  const [y, m, d] = entry.date.split("-");
+                                  return `${d}/${m}/${y}`;
+                                })()}
                               </p>
-                              {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                            </div>
-                          </div>
-                          
-                          <AnimatePresence>
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                className="overflow-hidden bg-slate-50/50"
-                              >
-                                <div className="p-4 md:p-6 space-y-3 border-t border-slate-100">
-                                  {group.entries.map(entry => (
-                                    <div 
-                                      key={entry.id} 
-                                      onClick={() => setSelectedEntry(entry)}
-                                      className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer group/item"
-                                    >
-                                      <div className="flex items-center gap-4">
-                                        <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 group-hover/item:bg-indigo-50 group-hover/item:text-indigo-600 transition-colors">
-                                          <User className="w-4 h-4" />
-                                        </div>
-                                        <div className={entry.is_reversed ? 'opacity-50' : ''}>
-                                          <p className={`text-sm font-bold text-slate-800 ${entry.is_reversed ? 'line-through' : ''}`}>
-                                            {entry.treasurer}
-                                            {entry.is_reversed === 1 && <span className="ml-2 text-[8px] text-rose-500 font-bold uppercase">Estornado</span>}
-                                          </p>
-                                          {entry.notes && <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{entry.notes}</p>}
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-4">
-                                        <p className={`text-sm font-bold tabular-nums ${entry.is_reversed ? 'text-slate-300 line-through' : 'text-slate-900'}`}>
-                                          {formatCurrency(entry.amount)}
-                                        </p>
-                                        <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover/item:text-indigo-400 transition-all" />
-                                      </div>
-                                    </div>
-                                  ))}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                                  <User className="w-4 h-4" />
                                 </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      );
-                    })
+                                <div className={entry.is_reversed ? 'opacity-50' : ''}>
+                                  <p className={`text-sm font-bold text-slate-800 ${entry.is_reversed ? 'line-through' : ''}`}>
+                                    {entry.treasurer}
+                                  </p>
+                                  {entry.notes && <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{entry.notes}</p>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider ${
+                                entry.type === "Dízimo" ? "bg-indigo-50 text-indigo-600" : "bg-amber-50 text-amber-600"
+                              }`}>
+                                {entry.type}
+                              </span>
+                              {entry.is_reversed === 1 && (
+                                <span className="ml-2 px-2 py-1 bg-rose-50 text-rose-600 rounded-md text-[9px] font-bold uppercase tracking-wider">
+                                  Estornado
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right whitespace-nowrap">
+                              <p className={`text-sm font-bold tabular-nums ${entry.is_reversed ? 'text-slate-300 line-through' : 'text-slate-900'}`}>
+                                {formatCurrency(entry.amount)}
+                              </p>
+                            </td>
+                            <td className="px-6 py-4 text-center print:hidden">
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => setSelectedEntry(entry)}
+                                  className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Ver Detalhes"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => sendWhatsApp(entry)}
+                                  className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                  title="Enviar Comprovante"
+                                >
+                                  <Send className="w-4 h-4" />
+                                </button>
+                                {userRole === "master" && !entry.is_reversed && (
+                                  <button 
+                                    onClick={() => reverseEntry(entry.id)}
+                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                    title="Estornar"
+                                  >
+                                    <RotateCcw className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
               </section>

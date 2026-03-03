@@ -38,6 +38,7 @@ import {
   XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import "./firebase"; // Initialize Firebase client
 import { 
   BarChart, 
   Bar, 

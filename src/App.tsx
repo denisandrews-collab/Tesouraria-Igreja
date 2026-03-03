@@ -31,7 +31,11 @@ import {
   Eye,
   EyeOff,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Bell,
+  Info,
+  AlertTriangle,
+  XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -63,6 +67,13 @@ interface Entry {
   is_reversed?: number;
   reversal_reason?: string;
   created_at: string;
+}
+
+interface Notification {
+  id: string;
+  type: "success" | "error" | "info" | "warning";
+  message: string;
+  title?: string;
 }
 
 const DENOMINATIONS = [
@@ -98,6 +109,8 @@ export default function App() {
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
   const [showValues, setShowValues] = useState(true);
   const [expandedDates, setExpandedDates] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isDashboardReady, setIsDashboardReady] = useState(false);
 
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -126,11 +139,14 @@ export default function App() {
     
     // Chart data: Group by date (only active entries)
     const groupedByDate = activeEntries.reduce((acc: Record<string, any>, curr) => {
-      const date = new Date(curr.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-      if (!acc[date]) acc[date] = { name: date, dízimo: 0, oferta: 0, total: 0 };
-      if (curr.type === "Dízimo") acc[date].dízimo += curr.amount;
-      else acc[date].oferta += curr.amount;
-      acc[date].total += curr.amount;
+      // Safe date formatting for YYYY-MM-DD to avoid timezone shifts
+      const [year, month, day] = curr.date.split("-");
+      const dateLabel = `${day}/${month}`;
+      
+      if (!acc[dateLabel]) acc[dateLabel] = { name: dateLabel, dízimo: 0, oferta: 0, total: 0 };
+      if (curr.type === "Dízimo") acc[dateLabel].dízimo += curr.amount;
+      else acc[dateLabel].oferta += curr.amount;
+      acc[dateLabel].total += curr.amount;
       return acc;
     }, {});
 
@@ -150,8 +166,8 @@ export default function App() {
     
     const currentMonthTotal = activeEntries
       .filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        const [y, m] = e.date.split("-");
+        return parseInt(m) - 1 === currentMonth && parseInt(y) === currentYear;
       })
       .reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -160,12 +176,14 @@ export default function App() {
     
     const prevMonthTotal = activeEntries
       .filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
+        const [y, m] = e.date.split("-");
+        return parseInt(m) - 1 === prevMonth && parseInt(y) === prevYear;
       })
       .reduce((acc, curr) => acc + curr.amount, 0);
 
-    const growth = prevMonthTotal === 0 ? 100 : ((currentMonthTotal - prevMonthTotal) / prevMonthTotal) * 100;
+    const growth = prevMonthTotal === 0 
+      ? (currentMonthTotal > 0 ? 100 : 0) 
+      : ((currentMonthTotal - prevMonthTotal) / prevMonthTotal) * 100;
 
     return { total, dizimos, ofertas, chartData, pieData, uniqueTreasurers, growth, currentMonthTotal };
   }, [entries]);
@@ -177,9 +195,8 @@ export default function App() {
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesFilter = filterType === "Todos" || entry.type === filterType;
       
-      const entryDate = new Date(entry.date);
-      const matchesDateRange = (!dateRange.start || entryDate >= new Date(dateRange.start)) &&
-                               (!dateRange.end || entryDate <= new Date(dateRange.end));
+      const matchesDateRange = (!dateRange.start || entry.date >= dateRange.start) &&
+                               (!dateRange.end || entry.date <= dateRange.end);
 
       return matchesSearch && matchesFilter && matchesDateRange;
     });
@@ -203,6 +220,28 @@ export default function App() {
   useEffect(() => {
     fetchEntries();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "dashboard") {
+      const timer = setTimeout(() => setIsDashboardReady(true), 300);
+      return () => {
+        clearTimeout(timer);
+        setIsDashboardReady(false);
+      };
+    }
+  }, [activeTab]);
+
+  const addNotification = (type: Notification["type"], message: string, title?: string) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setNotifications(prev => [...prev, { id, type, message, title }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
 
   const fetchEntries = async () => {
     try {
@@ -232,9 +271,11 @@ export default function App() {
       if (response.ok) {
         fetchEntries();
         setSelectedEntry(null);
+        addNotification("success", "O lançamento foi estornado com sucesso.", "Estorno Realizado");
       }
     } catch (error) {
       console.error("Error reversing entry:", error);
+      addNotification("error", "Não foi possível realizar o estorno.", "Erro no Servidor");
     }
   };
 
@@ -242,7 +283,10 @@ export default function App() {
     const headers = ["ID", "Data", "Tesoureiro", "Tipo", "Valor", "Observações", "Estornado", "Motivo Estorno"];
     const rows = filteredEntries.map(e => [
       e.id,
-      new Date(e.date).toLocaleDateString('pt-BR'),
+      (() => {
+        const [y, m, d] = e.date.split("-");
+        return `${d}/${m}/${y}`;
+      })(),
       e.treasurer,
       e.type,
       e.amount.toFixed(2),
@@ -265,6 +309,7 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    addNotification("success", "O arquivo CSV foi gerado e baixado com sucesso.", "Exportação Concluída");
   };
 
   const printReport = () => {
@@ -288,6 +333,7 @@ export default function App() {
 
       if (response.ok) {
         setSuccess(true);
+        addNotification("success", "O lançamento foi registrado com sucesso no sistema.", "Lançamento Salvo");
         setFormData({
           ...formData,
           amount: "",
@@ -313,9 +359,12 @@ export default function App() {
   };
 
   const formatWhatsAppMessage = (entry: Entry) => {
+    const [year, month, day] = entry.date.split("-");
+    const formattedDate = `${day}/${month}/${year}`;
+    
     let message = `*Comprovante de Lançamento*\n\n` +
       `👤 *Tesoureiro:* ${entry.treasurer}\n` +
-      `📅 *Data:* ${new Date(entry.date).toLocaleDateString('pt-BR')}\n` +
+      `📅 *Data:* ${formattedDate}\n` +
       `🏷️ *Tipo:* ${entry.type}\n` +
       `💰 *Valor:* R$ ${entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n`;
     
@@ -356,6 +405,7 @@ export default function App() {
           setPinError(false);
         } else {
           setPinError(true);
+          addNotification("error", "O PIN informado está incorreto. Tente novamente.", "Acesso Negado");
           setTimeout(() => {
             setPinInput("");
             setPinError(false);
@@ -546,7 +596,7 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6 print:space-y-8"
             >
-              {userRole === "master" ? (
+              {userRole === "master" || userRole === "junior" ? (
                 <>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-1">
                     {/* Trend Chart */}
@@ -555,35 +605,41 @@ export default function App() {
                         <BarChart3 className="w-5 h-5 text-indigo-600" />
                         <h3 className="font-bold text-slate-900">Tendência de Arrecadação</h3>
                       </div>
-                      <div className="h-[300px] w-full print:h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={stats.chartData}>
-                            <defs>
-                              <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
-                                <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis 
-                              dataKey="name" 
-                              axisLine={false} 
-                              tickLine={false} 
-                              tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }} 
-                            />
-                            <YAxis 
-                              axisLine={false} 
-                              tickLine={false} 
-                              tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }}
-                              tickFormatter={(value) => `R$ ${value}`}
-                            />
-                            <Tooltip 
-                              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                              itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                            />
-                            <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                      <div className="h-[300px] w-full print:h-[200px] relative">
+                        {stats.chartData.length > 0 && isDashboardReady ? (
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <AreaChart data={stats.chartData}>
+                              <defs>
+                                <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
+                                  <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis 
+                                dataKey="name" 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }} 
+                              />
+                              <YAxis 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }}
+                                tickFormatter={(value) => `R$ ${value}`}
+                              />
+                              <Tooltip 
+                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                              />
+                              <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs font-bold uppercase tracking-widest">
+                            Sem dados para exibir
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -593,28 +649,36 @@ export default function App() {
                         <PieChartIcon className="w-5 h-5 text-indigo-600" />
                         <h3 className="font-bold text-slate-900">Distribuição por Categoria</h3>
                       </div>
-                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={stats.pieData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={60}
-                              outerRadius={80}
-                              paddingAngle={5}
-                              dataKey="value"
-                            >
-                              {stats.pieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div className="flex flex-row md:flex-col gap-4 mt-4 md:mt-0 md:ml-4">
+                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative">
+                        <div className="w-full h-full flex-1 min-w-0">
+                          {isDashboardReady ? (
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                              <PieChart>
+                                <Pie
+                                  data={stats.pieData}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={60}
+                                  outerRadius={80}
+                                  paddingAngle={5}
+                                  dataKey="value"
+                                >
+                                  {stats.pieData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                  ))}
+                                </Pie>
+                                <Tooltip 
+                                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <div className="w-6 h-6 border-2 border-slate-100 border-t-indigo-600 rounded-full animate-spin" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-row md:flex-col gap-4 mt-4 md:mt-0 md:ml-4 flex-shrink-0">
                           {stats.pieData.map((item) => (
                             <div key={item.name} className="flex items-center gap-2">
                               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
@@ -641,31 +705,43 @@ export default function App() {
                       </button>
                     </div>
                     <div className="space-y-4">
-                      {entries.slice(0, 5).map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 print:bg-white print:border-slate-200 print:rounded-lg">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                              entry.is_reversed 
-                                ? "bg-slate-100 text-slate-400"
-                                : entry.type === "Dízimo" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-600"
-                            }`}>
-                              {entry.type === "Dízimo" ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                      {entries.length === 0 ? (
+                        <div className="py-12 text-center opacity-30">
+                          <History className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhuma atividade</p>
+                        </div>
+                      ) : (
+                        entries.slice(0, 5).map((entry) => (
+                          <div key={entry.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 print:bg-white print:border-slate-200 print:rounded-lg">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                                entry.is_reversed 
+                                  ? "bg-slate-100 text-slate-400"
+                                  : entry.type === "Dízimo" ? "bg-indigo-100 text-indigo-600" : "bg-amber-100 text-amber-600"
+                              }`}>
+                                {entry.type === "Dízimo" ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                              </div>
+                              <div className={entry.is_reversed ? 'opacity-50' : ''}>
+                                <p className={`text-sm font-bold text-slate-800 ${entry.is_reversed ? 'line-through' : ''}`}>
+                                  {entry.treasurer}
+                                  {entry.is_reversed === 1 && <span className="ml-2 text-[8px] text-rose-500 font-bold uppercase">Estornado</span>}
+                                </p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                  {(() => {
+                                    const [y, m, d] = entry.date.split("-");
+                                    return `${d}/${m}/${y}`;
+                                  })()}
+                                </p>
+                              </div>
                             </div>
-                            <div className={entry.is_reversed ? 'opacity-50' : ''}>
-                              <p className={`font-bold text-slate-900 ${entry.is_reversed ? 'line-through' : ''}`}>
-                                {entry.treasurer}
-                                {entry.is_reversed === 1 && <span className="ml-2 text-[8px] text-rose-500 font-bold uppercase">Estornado</span>}
+                            <div className="text-right">
+                              <p className={`text-sm font-bold tabular-nums ${entry.is_reversed ? 'text-slate-300 line-through' : 'text-slate-900'}`}>
+                                {formatCurrency(entry.amount)}
                               </p>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(entry.date).toLocaleDateString('pt-BR')}</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{entry.type}</p>
                             </div>
                           </div>
-                          <p className={`font-bold tabular-nums ${entry.is_reversed ? 'text-slate-300 line-through' : 'text-slate-900'}`}>
-                            R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </p>
-                        </div>
-                      ))}
-                      {entries.length === 0 && (
-                        <p className="text-center py-8 text-slate-400 text-sm italic">Nenhuma atividade registrada.</p>
+                        ))
                       )}
                     </div>
                   </div>
@@ -1031,7 +1107,12 @@ export default function App() {
                                 {group.type === "Dízimo" ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
                               </div>
                               <div>
-                                <h3 className="font-bold text-slate-900">{new Date(group.date).toLocaleDateString('pt-BR')}</h3>
+                                <h3 className="font-bold text-slate-900">
+                                  {(() => {
+                                    const [y, m, d] = group.date.split("-");
+                                    return `${d}/${m}/${y}`;
+                                  })()}
+                                </h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{group.type} • {group.entries.length} lançamentos</p>
                               </div>
                             </div>
@@ -1110,11 +1191,15 @@ export default function App() {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Instituição</label>
                     <input
                       type="text"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      disabled={userRole !== "master"}
+                      className={`w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium ${userRole !== "master" ? "opacity-50 cursor-not-allowed" : ""}`}
                       value={churchName}
                       onChange={(e) => updateChurchName(e.target.value)}
                       placeholder="Ex: Igreja Central"
                     />
+                    {userRole !== "master" && (
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest ml-1">Apenas usuários Master podem alterar o nome.</p>
+                    )}
                   </div>
 
                   <div className="pt-6 border-t border-slate-100">
@@ -1139,20 +1224,22 @@ export default function App() {
 
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Segurança e Acesso</h4>
-                    {userRole === "master" ? (
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                    {userRole === "master" || userRole === "junior" ? (
+                      <div className={`p-4 rounded-2xl border flex items-center justify-between ${userRole === "master" ? "bg-emerald-50 border-emerald-100" : "bg-indigo-50 border-indigo-100"}`}>
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-                            <Unlock className="w-5 h-5 text-emerald-600" />
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${userRole === "master" ? "bg-emerald-100" : "bg-indigo-100"}`}>
+                            {userRole === "master" ? <Unlock className="w-5 h-5 text-emerald-600" /> : <Shield className="w-5 h-5 text-indigo-600" />}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-emerald-900">Modo Master Ativo</p>
-                            <p className="text-[10px] text-emerald-600 font-medium">Você tem acesso total ao sistema.</p>
+                            <p className={`text-sm font-bold ${userRole === "master" ? "text-emerald-900" : "text-indigo-900"}`}>Modo {userRole === "master" ? "Master" : "Junior"} Ativo</p>
+                            <p className={`text-[10px] font-medium ${userRole === "master" ? "text-emerald-600" : "text-indigo-600"}`}>
+                              {userRole === "master" ? "Você tem acesso total ao sistema." : "Você pode visualizar saldos e histórico."}
+                            </p>
                           </div>
                         </div>
-                        <button 
+                        <button
                           onClick={handleLogoutMaster}
-                          className="px-4 py-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-emerald-100 transition-colors"
+                          className={`px-4 py-2 bg-white border rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${userRole === "master" ? "text-emerald-600 border-emerald-200 hover:bg-emerald-100" : "text-indigo-600 border-indigo-200 hover:bg-indigo-100"}`}
                         >
                           Sair
                         </button>
@@ -1328,6 +1415,54 @@ export default function App() {
       {/* Padding for bottom nav */}
       <div className="h-20" />
 
+      {/* Notifications */}
+      <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.95 }}
+              className="pointer-events-auto bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex gap-4 items-start group relative overflow-hidden"
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${
+                n.type === "success" ? "bg-emerald-50 text-emerald-600" :
+                n.type === "error" ? "bg-rose-50 text-rose-600" :
+                n.type === "warning" ? "bg-amber-50 text-amber-600" :
+                "bg-indigo-50 text-indigo-600"
+              }`}>
+                {n.type === "success" ? <CheckCircle2 className="w-5 h-5" /> :
+                 n.type === "error" ? <XCircle className="w-5 h-5" /> :
+                 n.type === "warning" ? <AlertTriangle className="w-5 h-5" /> :
+                 <Info className="w-5 h-5" />}
+              </div>
+              <div className="flex-1 min-w-0 pr-6">
+                {n.title && <h4 className="text-sm font-bold text-slate-900 mb-0.5">{n.title}</h4>}
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">{n.message}</p>
+              </div>
+              <button 
+                onClick={() => removeNotification(n.id)}
+                className="absolute top-2 right-2 p-1 text-slate-300 hover:text-slate-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <motion.div 
+                initial={{ width: "100%" }}
+                animate={{ width: "0%" }}
+                transition={{ duration: 5, ease: "linear" }}
+                className={`absolute bottom-0 left-0 h-1 ${
+                  n.type === "success" ? "bg-emerald-500" :
+                  n.type === "error" ? "bg-rose-500" :
+                  n.type === "warning" ? "bg-amber-500" :
+                  "bg-indigo-500"
+                }`}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {/* Entry Details Modal */}
       <AnimatePresence>
         {selectedEntry && (
@@ -1374,7 +1509,12 @@ export default function App() {
                   </div>
                   <div className="bg-slate-50 p-4 rounded-2xl">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Data</p>
-                    <p className="font-bold text-slate-800">{new Date(selectedEntry.date).toLocaleDateString('pt-BR')}</p>
+                    <p className="font-bold text-slate-800">
+                      {(() => {
+                        const [y, m, d] = selectedEntry.date.split("-");
+                        return `${d}/${m}/${y}`;
+                      })()}
+                    </p>
                   </div>
                 </div>
 
@@ -1383,25 +1523,35 @@ export default function App() {
                   <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-100">
                     {selectedEntry.counts ? (
                       <div className="divide-y divide-slate-100">
-                        {Object.entries(JSON.parse(selectedEntry.counts))
-                          .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-                          .map(([val, count]) => {
-                          const denomination = DENOMINATIONS.find(d => d.value === parseFloat(val));
-                          const subtotal = parseFloat(val) * parseInt(count as string);
-                          if (parseInt(count as string) === 0) return null;
-                          return (
-                            <div key={val} className="flex items-center justify-between p-3 px-4">
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-bold text-slate-500 w-16">{denomination?.label}</span>
-                                <span className="text-xs text-slate-300">×</span>
-                                <span className="text-sm font-bold text-indigo-600">{count}</span>
-                              </div>
-                              <span className="text-sm font-bold text-slate-700 tabular-nums">
-                                R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          );
-                        })}
+                        {(() => {
+                          try {
+                            const parsedCounts = typeof selectedEntry.counts === 'string' 
+                              ? JSON.parse(selectedEntry.counts) 
+                              : selectedEntry.counts;
+                            
+                            return Object.entries(parsedCounts)
+                              .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
+                              .map(([val, count]) => {
+                                const denomination = DENOMINATIONS.find(d => d.value === parseFloat(val));
+                                const subtotal = parseFloat(val) * parseInt(count as string);
+                                if (parseInt(count as string) === 0) return null;
+                                return (
+                                  <div key={val} className="flex items-center justify-between p-3 px-4">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-xs font-bold text-slate-500 w-16">{denomination?.label}</span>
+                                      <span className="text-xs text-slate-300">×</span>
+                                      <span className="text-sm font-bold text-indigo-600">{count}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-slate-700 tabular-nums">
+                                      R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                );
+                              });
+                          } catch (e) {
+                            return <div className="p-4 text-center text-xs text-slate-400">Erro ao carregar detalhes da contagem.</div>;
+                          }
+                        })()}
                       </div>
                     ) : (
                       <div className="p-8 text-center">

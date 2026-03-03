@@ -318,6 +318,17 @@ export default function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!formData.treasurer.trim()) {
+      addNotification("warning", "Por favor, informe o nome do tesoureiro.", "Campo Obrigatório");
+      return;
+    }
+    
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      addNotification("warning", "Por favor, informe um valor válido maior que zero.", "Valor Inválido");
+      return;
+    }
+
     setSubmitting(true);
     
     try {
@@ -345,9 +356,13 @@ export default function App() {
           setSuccess(false);
           setActiveTab(userRole === "master" ? "history" : "dashboard");
         }, 2000);
+      } else {
+        const errorData = await response.json();
+        addNotification("error", errorData.error || "Erro ao salvar o lançamento.", "Falha no Registro");
       }
     } catch (error) {
       console.error("Error saving entry:", error);
+      addNotification("error", "Não foi possível conectar ao servidor.", "Erro de Conexão");
     } finally {
       setSubmitting(false);
     }
@@ -356,6 +371,7 @@ export default function App() {
   const useCalculatorTotal = () => {
     setFormData({ ...formData, amount: calculatorTotal.toFixed(2) });
     setActiveTab("form");
+    addNotification("info", "O valor foi aplicado ao formulário. Complete os dados para salvar.", "Valor Aplicado");
   };
 
   const formatWhatsAppMessage = (entry: Entry) => {
@@ -1292,10 +1308,6 @@ export default function App() {
                 </div>
                 <h3 className="text-xl font-bold text-slate-900">Acesso Restrito</h3>
                 <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Insira seu PIN</p>
-                <div className="mt-2 flex justify-center gap-4 text-[9px] font-bold uppercase tracking-widest text-slate-400">
-                  <span>Master: 1234</span>
-                  <span>Junior: 4321</span>
-                </div>
               </div>
 
               <div className="flex justify-center gap-3 mb-8">

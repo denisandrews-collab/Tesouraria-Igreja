@@ -29,11 +29,15 @@ try {
 
 // Analytics only works in browser environment and if supported
 if (typeof window !== "undefined" && app) {
-  isSupported().then(yes => {
-    if (yes) {
-      analytics = getAnalytics(app);
-    }
-  });
+  isSupported()
+    .then(yes => {
+      if (yes) {
+        analytics = getAnalytics(app);
+      }
+    })
+    .catch(err => {
+      console.warn("Firebase Analytics não suportado neste ambiente:", err.message);
+    });
 }
 
 export { app, db, analytics, isFirebaseEnabled };

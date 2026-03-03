@@ -274,7 +274,9 @@ export default function App() {
         } catch (e: any) {
           if (e.message?.includes("Database '(default)' not found")) {
             setFirebaseStatus("error");
-            console.warn("Firestore Database not created in console.");
+          } else if (e.message?.includes("insufficient permissions")) {
+            setFirebaseStatus("error");
+            console.warn("Firestore Security Rules are blocking access.");
           }
           throw e;
         }
@@ -601,7 +603,7 @@ export default function App() {
               {firebaseStatus === "error" && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
                   <AlertTriangle className="w-2.5 h-2.5" />
-                  Nuvem Offline (Banco não criado)
+                  Nuvem Offline (Verifique as Regras/Database)
                 </div>
               )}
               {firebaseStatus === "online" && (

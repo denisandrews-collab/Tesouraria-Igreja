@@ -223,7 +223,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === "dashboard") {
-      const timer = setTimeout(() => setIsDashboardReady(true), 300);
+      const timer = setTimeout(() => setIsDashboardReady(true), 500);
       return () => {
         clearTimeout(timer);
         setIsDashboardReady(false);
@@ -607,7 +607,7 @@ export default function App() {
                       </div>
                       <div className="h-[300px] w-full print:h-[200px] relative">
                         {stats.chartData.length > 0 && isDashboardReady ? (
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                          <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1} debounce={100}>
                             <AreaChart data={stats.chartData}>
                               <defs>
                                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
@@ -652,7 +652,7 @@ export default function App() {
                       <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative">
                         <div className="w-full h-full flex-1 min-w-0">
                           {isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1} debounce={100}>
                               <PieChart>
                                 <Pie
                                   data={stats.pieData}

@@ -23,6 +23,7 @@ import {
   Trash2,
   PieChart as PieChartIcon,
   BarChart3,
+  Pencil,
   LineChart as LineChartIcon,
   Shield,
   Lock,
@@ -37,12 +38,18 @@ import {
   AlertTriangle,
   XCircle,
   Users,
+  Sparkles,
+  FileText,
   Home,
   MapPin,
   Minus,
   Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { GoogleGenAI } from "@google/genai";
+import Markdown from "react-markdown";
 import { db, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
 import { 
   collection, 
@@ -149,6 +156,9 @@ export default function App() {
   const [serverFirebaseEnabled, setServerFirebaseEnabled] = useState(false);
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
   const [wsConnected, setWsConnected] = useState(false);
+  const [aiInsights, setAiInsights] = useState<string | null>(null);
+  const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
 
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -173,6 +183,7 @@ export default function App() {
   });
 
   const [newLocationName, setNewLocationName] = useState("");
+  const [editingLocation, setEditingLocation] = useState<{ id: string | number, name: string } | null>(null);
 
   const calculatorTotal = useMemo(() => {
     return Object.entries(counts).reduce((acc, [val, count]) => {
@@ -274,7 +285,7 @@ export default function App() {
         } else if (data.type === "ENTRY_REVERSED") {
           addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
           fetchEntries();
-        } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE") {
+        } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
           fetchEntries();
         }
       } catch (e) {
@@ -488,11 +499,107 @@ export default function App() {
       if (response.ok) {
         fetchEntries();
         addNotification("success", "Local excluído com sucesso.", "Sucesso");
+      } else {
+        const errorData = await response.json();
+        addNotification("error", errorData.error || "Erro ao excluir local.", "Erro");
       }
     } catch (error) {
       console.error("Error deleting location:", error);
       addNotification("error", "Erro ao excluir local.", "Erro");
     }
+  };
+
+  const editLocation = async () => {
+    if (!editingLocation || !editingLocation.name.trim()) return;
+    try {
+      const response = await fetch(`/api/locations/${editingLocation.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editingLocation.name })
+      });
+      if (response.ok) {
+        setEditingLocation(null);
+        fetchEntries();
+        addNotification("success", "Local atualizado com sucesso.", "Sucesso");
+      }
+    } catch (error) {
+      console.error("Error updating location:", error);
+      addNotification("error", "Erro ao atualizar local.", "Erro");
+    }
+  };
+
+  const generateInsights = async () => {
+    if (entries.length === 0) {
+      addNotification("info", "Não há dados suficientes para gerar insights.", "IA Insights");
+      return;
+    }
+    setGeneratingInsights(true);
+    setShowAiModal(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const activeEntries = entries.filter(e => !e.is_reversed);
+      const dataSummary = activeEntries.map(e => ({
+        data: e.date,
+        tipo: e.type,
+        valor: e.amount,
+        tesoureiro: e.treasurer
+      }));
+
+      const prompt = `Como um consultor financeiro especializado em tesouraria de igrejas, analise os seguintes lançamentos da igreja "${churchName}":
+      ${JSON.stringify(dataSummary)}
+      
+      Forneça um resumo executivo com:
+      1. Tendências de arrecadação (Dízimos vs Ofertas).
+      2. Destaques positivos.
+      3. Recomendações para a gestão financeira.
+      4. Uma frase de encorajamento baseada em princípios de mordomia cristã.
+      
+      Responda em Markdown, de forma profissional e acolhedora. Use emojis para tornar a leitura agradável.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+      });
+
+      setAiInsights(response.text);
+      addNotification("success", "Insights gerados com sucesso!", "IA Insights");
+    } catch (error) {
+      console.error("Error generating insights:", error);
+      addNotification("error", "Erro ao gerar insights com IA.", "Erro");
+      setShowAiModal(false);
+    } finally {
+      setGeneratingInsights(false);
+    }
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    const title = `Relatório de Tesouraria - ${churchName}`;
+    doc.setFontSize(18);
+    doc.text(title, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 30);
+
+    const tableData = filteredEntries.map(e => [
+      e.date.split("-").reverse().join("/"),
+      e.period,
+      e.treasurer,
+      e.type,
+      `R$ ${e.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+      e.is_reversed ? "Sim" : "Não"
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [["Data", "Período", "Tesoureiro", "Tipo", "Valor", "Estornado"]],
+      body: tableData,
+      headStyles: { fillColor: [79, 70, 229] },
+      alternateRowStyles: { fillColor: [249, 250, 251] },
+    });
+
+    doc.save(`relatorio-tesouraria-${new Date().toISOString().split('T')[0]}.pdf`);
+    addNotification("success", "PDF gerado com sucesso!", "Exportar");
   };
 
   const exportCSV = () => {
@@ -1008,9 +1115,19 @@ export default function App() {
 
                     {/* Distribution Chart */}
                     <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 print:shadow-none print:border-slate-200 print:rounded-xl">
-                      <div className="flex items-center gap-2 mb-6">
-                        <PieChartIcon className="w-5 h-5 text-indigo-600" />
-                        <h3 className="font-bold text-slate-900">Distribuição por Categoria</h3>
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2">
+                          <PieChartIcon className="w-5 h-5 text-indigo-600" />
+                          <h3 className="font-bold text-slate-900">Distribuição por Categoria</h3>
+                        </div>
+                        <button 
+                          onClick={generateInsights}
+                          disabled={generatingInsights}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-100 transition-all disabled:opacity-50"
+                        >
+                          <Sparkles className={`w-3 h-3 ${generatingInsights ? 'animate-pulse' : ''}`} />
+                          IA Insights
+                        </button>
                       </div>
                       <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative">
                         <div className="w-full h-full flex-1 min-w-0">
@@ -1051,6 +1168,46 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
+                    <button 
+                      onClick={() => setActiveTab("calculator")}
+                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-center"
+                    >
+                      <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                        <Calculator className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Calculadora</p>
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab("form")}
+                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-emerald-200 transition-all group text-center"
+                    >
+                      <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                        <PlusCircle className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Novo Registro</p>
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab("attendance")}
+                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-center"
+                    >
+                      <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                        <Users className="w-5 h-5 text-amber-600" />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Pessoas</p>
+                    </button>
+                    <button 
+                      onClick={generateInsights}
+                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-violet-200 transition-all group text-center"
+                    >
+                      <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                        <Sparkles className="w-5 h-5 text-violet-600" />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">IA Insights</p>
+                    </button>
                   </div>
 
                   {/* Recent Activity Mini List */}
@@ -1116,7 +1273,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <button 
                     onClick={() => setActiveTab("calculator")}
                     className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-left"
@@ -1125,7 +1282,7 @@ export default function App() {
                       <Calculator className="w-8 h-8 text-indigo-600" />
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">Calculadora de Caixa</h3>
-                    <p className="text-sm text-slate-500 leading-relaxed">Contabilize notas e moedas fisicamente antes de registrar o valor total.</p>
+                    <p className="text-sm text-slate-500 leading-relaxed text-balance">Contabilize notas e moedas fisicamente antes de registrar o valor total.</p>
                   </button>
                   <button 
                     onClick={() => setActiveTab("form")}
@@ -1135,7 +1292,17 @@ export default function App() {
                       <PlusCircle className="w-8 h-8 text-emerald-600" />
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">Novo Registro</h3>
-                    <p className="text-sm text-slate-500 leading-relaxed">Lance dízimos e ofertas diretamente no sistema para gerar comprovantes.</p>
+                    <p className="text-sm text-slate-500 leading-relaxed text-balance">Lance dízimos e ofertas diretamente no sistema para gerar comprovantes.</p>
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab("attendance")}
+                    className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-left"
+                  >
+                    <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                      <Users className="w-8 h-8 text-amber-600" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">Contagem de Pessoas</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed text-balance">Registre a frequência de homens, mulheres e crianças nos cultos.</p>
                   </button>
                 </div>
               )}
@@ -1427,6 +1594,13 @@ export default function App() {
                           >
                             <Download className="w-5 h-5" />
                           </button>
+                          <button 
+                            onClick={exportPDF}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all print:hidden" 
+                            title="Exportar PDF"
+                          >
+                            <FileText className="w-5 h-5" />
+                          </button>
                         </>
                       )}
                     </div>
@@ -1613,6 +1787,42 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.98 }}
               className="max-w-4xl mx-auto w-full space-y-6"
             >
+              {/* Attendance Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white p-6 rounded-[1.5rem] border border-slate-200/60 shadow-sm">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Hoje</p>
+                  <p className="text-2xl font-bold text-slate-900 tabular-nums">
+                    {(() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      const todayEntries = attendanceEntries.filter(a => a.date === today);
+                      return todayEntries.reduce((acc, curr) => {
+                        return acc + Object.values(curr.counts || {}).reduce((a, c) => {
+                          const val = c as { men: number; women: number; children: number };
+                          return a + val.men + val.women + val.children;
+                        }, 0);
+                      }, 0);
+                    })()}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-[1.5rem] border border-slate-200/60 shadow-sm">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Média por Culto</p>
+                  <p className="text-2xl font-bold text-indigo-600 tabular-nums">
+                    {attendanceEntries.length > 0 
+                      ? Math.round(attendanceEntries.reduce((acc, curr) => {
+                          return acc + Object.values(curr.counts || {}).reduce((a, c) => {
+                            const val = c as { men: number; women: number; children: number };
+                            return a + val.men + val.women + val.children;
+                          }, 0);
+                        }, 0) / attendanceEntries.length)
+                      : 0}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-[1.5rem] border border-slate-200/60 shadow-sm">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Registros</p>
+                  <p className="text-2xl font-bold text-slate-900 tabular-nums">{attendanceEntries.length}</p>
+                </div>
+              </div>
+
               <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
                 <div className="flex items-center gap-2 mb-8">
                   <Users className="w-5 h-5 text-indigo-600" />
@@ -1990,14 +2200,52 @@ export default function App() {
                       <div className="space-y-2">
                         {locations.map(loc => (
                           <div key={loc.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                            <span className="text-sm font-medium text-slate-700">{loc.name}</span>
-                            {!loc.is_default && (
-                              <button
-                                onClick={() => deleteLocation(loc.id)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                            {editingLocation?.id === loc.id ? (
+                              <div className="flex items-center gap-2 w-full">
+                                <input
+                                  type="text"
+                                  className="flex-1 px-3 py-1 bg-white border border-slate-200 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                  value={editingLocation.name}
+                                  onChange={(e) => setEditingLocation({ ...editingLocation, name: e.target.value })}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") editLocation();
+                                    if (e.key === "Escape") setEditingLocation(null);
+                                  }}
+                                />
+                                <button
+                                  onClick={editLocation}
+                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setEditingLocation(null)}
+                                  className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-sm font-medium text-slate-700">{loc.name}</span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => setEditingLocation({ id: loc.id, name: loc.name })}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  {!loc.is_default && (
+                                    <button
+                                      onClick={() => deleteLocation(loc.id)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </>
                             )}
                           </div>
                         ))}
@@ -2314,22 +2562,22 @@ export default function App() {
                       <div className="divide-y divide-slate-100">
                         {(() => {
                           try {
-                            const parsedCounts = typeof selectedEntry.counts === 'string' 
+                            const parsedCounts = (typeof selectedEntry.counts === 'string' 
                               ? JSON.parse(selectedEntry.counts) 
-                              : selectedEntry.counts;
+                              : selectedEntry.counts) as Record<string, number | string>;
                             
                             return Object.entries(parsedCounts)
                               .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
                               .map(([val, count]) => {
                                 const denomination = DENOMINATIONS.find(d => d.value === parseFloat(val));
-                                const subtotal = parseFloat(val) * parseInt(count as string);
+                                const subtotal = parseFloat(val) * (typeof count === 'string' ? parseInt(count) : count);
                                 if (parseInt(count as string) === 0) return null;
                                 return (
                                   <div key={val} className="flex items-center justify-between p-3 px-4">
                                     <div className="flex items-center gap-3">
                                       <span className="text-xs font-bold text-slate-500 w-16">{denomination?.label}</span>
                                       <span className="text-xs text-slate-300">×</span>
-                                      <span className="text-sm font-bold text-indigo-600">{count}</span>
+                                      <span className="text-sm font-bold text-indigo-600">{count as React.ReactNode}</span>
                                     </div>
                                     <span className="text-sm font-bold text-slate-700 tabular-nums">
                                       R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -2401,6 +2649,78 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* AI Insights Modal */}
+      <AnimatePresence>
+        {showAiModal && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !generatingInsights && setShowAiModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-indigo-50/50">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">IA Insights</h3>
+                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Consultoria Financeira Inteligente</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowAiModal(false)}
+                  disabled={generatingInsights}
+                  className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 disabled:opacity-0"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
+                {generatingInsights ? (
+                  <div className="py-20 text-center space-y-6">
+                    <div className="relative w-20 h-20 mx-auto">
+                      <div className="absolute inset-0 border-4 border-indigo-100 rounded-full" />
+                      <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin" />
+                      <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-indigo-600 animate-pulse" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-lg font-bold text-slate-900">Analisando dados...</p>
+                      <p className="text-sm text-slate-400 font-medium">O Gemini está processando seus lançamentos financeiros.</p>
+                    </div>
+                  </div>
+                ) : aiInsights ? (
+                  <div className="prose prose-slate max-w-none prose-sm prose-headings:text-slate-900 prose-headings:font-bold prose-p:text-slate-600 prose-p:leading-relaxed prose-strong:text-indigo-600">
+                    <Markdown>{aiInsights as string}</Markdown>
+                  </div>
+                ) : (
+                  <div className="py-20 text-center">
+                    <p className="text-slate-400 font-medium">Nenhum insight gerado ainda.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setShowAiModal(false)}
+                  className="px-8 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </AnimatePresence>
   </div>
 );

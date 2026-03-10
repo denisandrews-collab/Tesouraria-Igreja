@@ -69,7 +69,7 @@ db.exec(`
 `);
 
 // Insert default locations if they don't exist
-const defaultLocations = ["Salão Principal", "Salão Auxiliar"];
+const defaultLocations = ["Salão Principal"];
 defaultLocations.forEach(name => {
   const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
   if (!exists) {
@@ -281,8 +281,7 @@ async function startServer() {
         if (data.length === 0) {
           // Initialize defaults in firestore if empty
           const defaults = [
-            { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() },
-            { name: "Salão Auxiliar", is_default: 1, created_at: new Date().toISOString() }
+            { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }
           ];
           for (const d of defaults) {
             const ref = await firestore.collection("locations").add(d);
@@ -294,7 +293,7 @@ async function startServer() {
       const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
       if (data.length === 0) {
         // Ensure defaults in SQLite if somehow empty
-        const defaultLocations = ["Salão Principal", "Salão Auxiliar"];
+        const defaultLocations = ["Salão Principal"];
         defaultLocations.forEach(name => {
           db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
         });
@@ -335,19 +334,63 @@ async function startServer() {
     }
   });
 
+  app.put("/api/locations/:id", async (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Name is required" });
+
+    try {
+      if (firestore) {
+        await firestore.collection("locations").doc(id).update({ name });
+      } else {
+        const numericId = parseInt(id);
+        if (!isNaN(numericId)) {
+          db.prepare("UPDATE locations SET name = ? WHERE id = ?").run(name, numericId);
+        } else {
+          db.prepare("UPDATE locations SET name = ? WHERE id = ?").run(name, id);
+        }
+      }
+      broadcast({ type: "LOCATION_UPDATED", id, name });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating location:", error);
+      res.status(500).json({ error: "Failed to update location" });
+    }
+  });
+
   app.delete("/api/locations/:id", async (req, res) => {
     const { id } = req.params;
     try {
       if (firestore) {
-        await firestore.collection("locations").doc(id).delete();
+        const docRef = firestore.collection("locations").doc(id);
+        const doc = await docRef.get();
+        if (!doc.exists) {
+          return res.status(404).json({ error: "Local não encontrado." });
+        }
+        if (doc.data()?.is_default) {
+          return res.status(403).json({ error: "Não é possível excluir um local padrão." });
+        }
+        await docRef.delete();
       } else {
-        db.prepare("DELETE FROM locations WHERE id = ? AND is_default = 0").run(id);
+        const numericId = parseInt(id);
+        const targetId = isNaN(numericId) ? id : numericId;
+        
+        // Check if it's default first
+        const loc = db.prepare("SELECT * FROM locations WHERE id = ?").get(targetId);
+        if (!loc) {
+          return res.status(404).json({ error: "Local não encontrado." });
+        }
+        if (loc.is_default) {
+          return res.status(403).json({ error: "Não é possível excluir um local padrão." });
+        }
+
+        db.prepare("DELETE FROM locations WHERE id = ?").run(targetId);
       }
       broadcast({ type: "LOCATION_DELETED", id });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting location:", error);
-      res.status(500).json({ error: "Failed to delete location" });
+      res.status(500).json({ error: "Erro interno ao excluir local." });
     }
   });
 

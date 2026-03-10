@@ -159,6 +159,7 @@ export default function App() {
   const [aiInsights, setAiInsights] = useState<string | null>(null);
   const [generatingInsights, setGeneratingInsights] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [historyLimit, setHistoryLimit] = useState(20);
 
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -1064,7 +1065,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6 print:space-y-8"
+              className="space-y-6 pb-24 md:pb-0 print:space-y-8"
             >
               {userRole === "master" || userRole === "junior" ? (
                 <>
@@ -1172,42 +1173,46 @@ export default function App() {
 
                   {/* Quick Actions */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
-                    <button 
+                    <motion.button 
                       onClick={() => setActiveTab("calculator")}
+                      whileTap={{ scale: 0.95 }}
                       className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-center"
                     >
                       <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
                         <Calculator className="w-5 h-5 text-indigo-600" />
                       </div>
                       <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Calculadora</p>
-                    </button>
-                    <button 
+                    </motion.button>
+                    <motion.button 
                       onClick={() => setActiveTab("form")}
+                      whileTap={{ scale: 0.95 }}
                       className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-emerald-200 transition-all group text-center"
                     >
                       <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
                         <PlusCircle className="w-5 h-5 text-emerald-600" />
                       </div>
                       <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Novo Registro</p>
-                    </button>
-                    <button 
+                    </motion.button>
+                    <motion.button 
                       onClick={() => setActiveTab("attendance")}
+                      whileTap={{ scale: 0.95 }}
                       className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-center"
                     >
                       <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
                         <Users className="w-5 h-5 text-amber-600" />
                       </div>
                       <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Pessoas</p>
-                    </button>
-                    <button 
+                    </motion.button>
+                    <motion.button 
                       onClick={generateInsights}
+                      whileTap={{ scale: 0.95 }}
                       className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-violet-200 transition-all group text-center"
                     >
                       <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
                         <Sparkles className="w-5 h-5 text-violet-600" />
                       </div>
                       <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">IA Insights</p>
-                    </button>
+                    </motion.button>
                   </div>
 
                   {/* Recent Activity Mini List */}
@@ -1273,9 +1278,10 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <button 
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pb-24 md:pb-0">
+                  <motion.button 
                     onClick={() => setActiveTab("calculator")}
+                    whileTap={{ scale: 0.95 }}
                     className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-left"
                   >
                     <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
@@ -1283,9 +1289,10 @@ export default function App() {
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">Calculadora de Caixa</h3>
                     <p className="text-sm text-slate-500 leading-relaxed text-balance">Contabilize notas e moedas fisicamente antes de registrar o valor total.</p>
-                  </button>
-                  <button 
+                  </motion.button>
+                  <motion.button 
                     onClick={() => setActiveTab("form")}
+                    whileTap={{ scale: 0.95 }}
                     className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-emerald-200 transition-all group text-left"
                   >
                     <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
@@ -1293,9 +1300,10 @@ export default function App() {
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">Novo Registro</h3>
                     <p className="text-sm text-slate-500 leading-relaxed text-balance">Lance dízimos e ofertas diretamente no sistema para gerar comprovantes.</p>
-                  </button>
-                  <button 
+                  </motion.button>
+                  <motion.button 
                     onClick={() => setActiveTab("attendance")}
+                    whileTap={{ scale: 0.95 }}
                     className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-left"
                   >
                     <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
@@ -1303,7 +1311,7 @@ export default function App() {
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">Contagem de Pessoas</h3>
                     <p className="text-sm text-slate-500 leading-relaxed text-balance">Registre a frequência de homens, mulheres e crianças nos cultos.</p>
-                  </button>
+                  </motion.button>
                 </div>
               )}
             </motion.div>
@@ -1694,7 +1702,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {filteredEntries.map((entry) => (
+                        {filteredEntries.slice(0, historyLimit).map((entry) => (
                           <tr 
                             key={entry.id} 
                             className={`group hover:bg-slate-50/50 transition-colors ${entry.is_reversed ? 'bg-rose-50/10' : ''}`}
@@ -1773,6 +1781,16 @@ export default function App() {
                         ))}
                       </tbody>
                     </table>
+                  )}
+                  {filteredEntries.length > historyLimit && (
+                    <div className="p-8 text-center border-t border-slate-100">
+                      <button 
+                        onClick={() => setHistoryLimit(prev => prev + 20)}
+                        className="px-8 py-3 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-100 transition-all"
+                      >
+                        Carregar Mais
+                      </button>
+                    </div>
                   )}
                 </div>
               </section>
@@ -2721,6 +2739,41 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      {/* Bottom Navigation for Mobile */}
+      <div className="fixed bottom-0 left-0 right-0 z-[200] md:hidden bg-white/80 backdrop-blur-lg border-t border-slate-200 px-6 py-3 pb-8 flex items-center justify-between">
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setActiveTab("dashboard")}
+          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "dashboard" ? "text-indigo-600" : "text-slate-400"}`}
+        >
+          <LayoutDashboard className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Início</span>
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setActiveTab("form")}
+          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "form" ? "text-indigo-600" : "text-slate-400"}`}
+        >
+          <PlusCircle className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Novo</span>
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setActiveTab("calculator")}
+          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "calculator" ? "text-indigo-600" : "text-slate-400"}`}
+        >
+          <Calculator className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Caixa</span>
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setActiveTab("history")}
+          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "history" ? "text-indigo-600" : "text-slate-400"}`}
+        >
+          <History className="w-6 h-6" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Histórico</span>
+        </motion.button>
+      </div>
     </AnimatePresence>
   </div>
 );

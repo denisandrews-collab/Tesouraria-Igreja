@@ -124,6 +124,12 @@ async function startServer() {
   };
 
   // API Routes
+  app.get("/api/config", (req, res) => {
+    res.json({
+      firebaseEnabled: !!firestore
+    });
+  });
+
   app.get("/api/entries", async (req, res) => {
     try {
       if (firestore) {
@@ -286,6 +292,14 @@ async function startServer() {
         return res.json(data);
       }
       const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
+      if (data.length === 0) {
+        // Ensure defaults in SQLite if somehow empty
+        const defaultLocations = ["Salão Principal", "Salão Auxiliar"];
+        defaultLocations.forEach(name => {
+          db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
+        });
+        return res.json(db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all());
+      }
       res.json(data);
     } catch (error) {
       console.error("Error fetching locations:", error);

@@ -146,6 +146,7 @@ export default function App() {
   const [showValues, setShowValues] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
+  const [serverFirebaseEnabled, setServerFirebaseEnabled] = useState(false);
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
   const [wsConnected, setWsConnected] = useState(false);
 
@@ -273,6 +274,8 @@ export default function App() {
         } else if (data.type === "ENTRY_REVERSED") {
           addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
           fetchEntries();
+        } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE") {
+          fetchEntries();
         }
       } catch (e) {
         console.error("Error parsing WS message", e);
@@ -311,9 +314,18 @@ export default function App() {
 
   const fetchEntries = async () => {
     try {
-      // Try Firestore with timeout if db is available
+      // Check server config first
+      const configResponse = await fetch("/api/config");
+      let isServerFirebase = false;
+      if (configResponse.ok) {
+        const config = await configResponse.json();
+        isServerFirebase = config.firebaseEnabled;
+        setServerFirebaseEnabled(isServerFirebase);
+      }
+
+      // Try Firestore with timeout if db is available and server says it's enabled
       const fetchFromFirestore = async () => {
-        if (!db || !isFirebaseEnabled) return null;
+        if (!db || !isFirebaseEnabled || !isServerFirebase) return null;
         try {
           const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
           const querySnapshot = await getDocs(q);
@@ -340,6 +352,9 @@ export default function App() {
             id: doc.id, 
             ...doc.data() 
           })) as Location[];
+
+          // If locations are empty, return null to fallback to API which handles defaults
+          if (locationsData.length === 0) return null;
 
           return { entriesData, attendanceData, locationsData };
         } catch (e: any) {

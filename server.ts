@@ -42,9 +42,40 @@ db.exec(`
     notes TEXT,
     is_reversed INTEGER DEFAULT 0,
     reversal_reason TEXT,
+    period TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    period TEXT NOT NULL,
+    counts TEXT NOT NULL,
+    responsible TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Insert default locations if they don't exist
+const defaultLocations = ["Salão Principal", "Salão Auxiliar"];
+defaultLocations.forEach(name => {
+  const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
+  if (!exists) {
+    db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
+  }
+});
 
 const columns = [
   { name: "counts", type: "TEXT" },
@@ -59,6 +90,14 @@ columns.forEach(col => {
     db.exec(`ALTER TABLE entries ADD COLUMN ${col.name} ${col.type}`);
   } catch (e) {}
 });
+
+// Migration for attendance table
+try {
+  db.exec("ALTER TABLE attendance ADD COLUMN counts TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE attendance ADD COLUMN responsible TEXT");
+} catch (e) {}
 
 async function startServer() {
   const app = express();
@@ -165,6 +204,136 @@ async function startServer() {
     } catch (error) {
       console.error("Error reversing entry:", error);
       res.status(500).json({ error: "Failed to reverse entry" });
+    }
+  });
+
+  app.get("/api/attendance", async (req, res) => {
+    try {
+      if (firestore) {
+        const snapshot = await firestore.collection("attendance").orderBy("created_at", "desc").get();
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return res.json(data);
+      }
+      const data = db.prepare("SELECT * FROM attendance ORDER BY created_at DESC").all();
+      // Parse counts JSON
+      const parsedData = data.map((item: any) => ({
+        ...item,
+        counts: JSON.parse(item.counts)
+      }));
+      res.json(parsedData);
+    } catch (error) {
+      console.error("Error fetching attendance:", error);
+      res.status(500).json({ error: "Failed to fetch attendance" });
+    }
+  });
+
+  app.post("/api/attendance", async (req, res) => {
+    const { date, period, counts, responsible, notes } = req.body;
+
+    if (!date || !period || !counts) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const attendanceData = {
+        date,
+        period,
+        counts: typeof counts === 'string' ? counts : JSON.stringify(counts),
+        responsible: responsible || null,
+        notes: notes || null,
+        created_at: new Date().toISOString()
+      };
+
+      let finalAttendance: any;
+      if (firestore) {
+        const docRef = await firestore.collection("attendance").add({
+          ...attendanceData,
+          counts: typeof counts === 'string' ? JSON.parse(counts) : counts
+        });
+        finalAttendance = { id: docRef.id, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+      } else {
+        const info = db.prepare(`
+          INSERT INTO attendance (date, period, counts, responsible, notes)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(date, period, attendanceData.counts, attendanceData.responsible, attendanceData.notes);
+        finalAttendance = { id: info.lastInsertRowid, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+      }
+      
+      broadcast({ type: "NEW_ATTENDANCE", attendance: finalAttendance });
+      res.json(finalAttendance);
+    } catch (error) {
+      console.error("Error saving attendance:", error);
+      res.status(500).json({ error: "Failed to save attendance" });
+    }
+  });
+
+  app.get("/api/locations", async (req, res) => {
+    try {
+      if (firestore) {
+        const snapshot = await firestore.collection("locations").orderBy("created_at", "asc").get();
+        let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (data.length === 0) {
+          // Initialize defaults in firestore if empty
+          const defaults = [
+            { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() },
+            { name: "Salão Auxiliar", is_default: 1, created_at: new Date().toISOString() }
+          ];
+          for (const d of defaults) {
+            const ref = await firestore.collection("locations").add(d);
+            data.push({ id: ref.id, ...d });
+          }
+        }
+        return res.json(data);
+      }
+      const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching locations:", error);
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.post("/api/locations", async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Name is required" });
+
+    try {
+      const locationData = {
+        name,
+        is_default: 0,
+        created_at: new Date().toISOString()
+      };
+
+      let finalLocation: any;
+      if (firestore) {
+        const docRef = await firestore.collection("locations").add(locationData);
+        finalLocation = { id: docRef.id, ...locationData };
+      } else {
+        const info = db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 0)").run(name);
+        finalLocation = { id: info.lastInsertRowid, ...locationData };
+      }
+      
+      broadcast({ type: "NEW_LOCATION", location: finalLocation });
+      res.json(finalLocation);
+    } catch (error) {
+      console.error("Error saving location:", error);
+      res.status(500).json({ error: "Failed to save location" });
+    }
+  });
+
+  app.delete("/api/locations/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+      if (firestore) {
+        await firestore.collection("locations").doc(id).delete();
+      } else {
+        db.prepare("DELETE FROM locations WHERE id = ? AND is_default = 0").run(id);
+      }
+      broadcast({ type: "LOCATION_DELETED", id });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting location:", error);
+      res.status(500).json({ error: "Failed to delete location" });
     }
   });
 

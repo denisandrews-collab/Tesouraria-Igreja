@@ -35,7 +35,12 @@ import {
   Bell,
   Info,
   AlertTriangle,
-  XCircle
+  XCircle,
+  Users,
+  Home,
+  MapPin,
+  Minus,
+  Plus
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
@@ -81,6 +86,23 @@ interface Entry {
   created_at: string;
 }
 
+interface Attendance {
+  id: string | number;
+  date: string;
+  period: string;
+  counts: Record<string, { men: number; women: number; children: number }>;
+  responsible?: string;
+  notes?: string;
+  created_at: string;
+}
+
+interface Location {
+  id: string | number;
+  name: string;
+  is_default: number;
+  created_at: string;
+}
+
 interface Notification {
   id: string;
   type: "success" | "error" | "info" | "warning";
@@ -105,12 +127,14 @@ const DENOMINATIONS = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance">("dashboard");
   const [userRole, setUserRole] = useState<"master" | "junior" | "user">(() => (localStorage.getItem("userRole") as any) || "user");
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [attendanceEntries, setAttendanceEntries] = useState<Attendance[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -137,6 +161,17 @@ export default function App() {
     amount: "",
     notes: ""
   });
+
+  // Attendance Form state
+  const [attendanceForm, setAttendanceForm] = useState({
+    date: new Date().toISOString().split("T")[0],
+    period: "Manhã" as "Manhã" | "Tarde" | "Noite",
+    counts: {} as Record<string, { men: number; women: number; children: number }>,
+    responsible: "",
+    notes: ""
+  });
+
+  const [newLocationName, setNewLocationName] = useState("");
 
   const calculatorTotal = useMemo(() => {
     return Object.entries(counts).reduce((acc, [val, count]) => {
@@ -282,14 +317,31 @@ export default function App() {
         try {
           const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
           const querySnapshot = await getDocs(q);
+
+          const qAtt = query(collection(db, "attendance"), orderBy("created_at", "desc"));
+          const querySnapshotAtt = await getDocs(qAtt);
+
+          const qLoc = query(collection(db, "locations"), orderBy("created_at", "asc"));
+          const querySnapshotLoc = await getDocs(qLoc);
+
           setFirebaseStatus("online");
-          if (!querySnapshot.empty) {
-            return querySnapshot.docs.map(doc => ({ 
-              id: doc.id, 
-              ...doc.data() 
-            })) as Entry[];
-          }
-          return []; // Return empty array if collection exists but is empty
+          
+          const entriesData = querySnapshot.empty ? [] : querySnapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+          })) as Entry[];
+
+          const attendanceData = querySnapshotAtt.empty ? [] : querySnapshotAtt.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+          })) as Attendance[];
+
+          const locationsData = querySnapshotLoc.empty ? [] : querySnapshotLoc.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+          })) as Location[];
+
+          return { entriesData, attendanceData, locationsData };
         } catch (e: any) {
           if (e.message?.includes("Database '(default)' not found")) {
             setFirebaseStatus("error");
@@ -303,10 +355,14 @@ export default function App() {
         setTimeout(() => reject(new Error("Timeout")), 5000)
       );
 
+      setLoading(true);
       try {
-        const data = await Promise.race([fetchFromFirestore(), timeoutPromise]) as Entry[] | null;
-        if (data) {
-          setEntries(data);
+        const result = await Promise.race([fetchFromFirestore(), timeoutPromise]) as any;
+        if (result) {
+          setEntries(result.entriesData);
+          setAttendanceEntries(result.attendanceData);
+          setLocations(result.locationsData);
+          setLoading(false);
           return;
         }
       } catch (fsError) {
@@ -315,22 +371,43 @@ export default function App() {
 
       // Fallback to local API
       const response = await fetch("/api/entries");
-      const data = await response.json();
-      setEntries(data);
-    } catch (error) {
-      console.error("Error fetching entries:", error);
-      // Fallback to local API on error
-      try {
-        const response = await fetch("/api/entries");
+      if (response.ok) {
         const data = await response.json();
         setEntries(data);
-      } catch (e) {
-        console.error("Local fallback failed:", e);
       }
+
+      const attResponse = await fetch("/api/attendance");
+      if (attResponse.ok) {
+        const data = await attResponse.json();
+        setAttendanceEntries(data);
+      }
+
+      const locResponse = await fetch("/api/locations");
+      if (locResponse.ok) {
+        const data = await locResponse.json();
+        setLocations(data);
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      addNotification("error", "Erro ao sincronizar dados com o servidor.", "Erro de Conexão");
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setAttendanceForm(prev => {
+      const updatedCounts: Record<string, { men: number; women: number; children: number }> = {};
+      locations.forEach(loc => {
+        updatedCounts[loc.name] = prev.counts[loc.name] || { men: 0, women: 0, children: 0 };
+      });
+      // Only update if counts actually changed to avoid infinite loops
+      if (JSON.stringify(updatedCounts) !== JSON.stringify(prev.counts)) {
+        return { ...prev, counts: updatedCounts };
+      }
+      return prev;
+    });
+  }, [locations]);
 
   const reverseEntry = async (id: string | number) => {
     const reason = prompt("Por favor, informe o motivo do estorno (OBRIGATÓRIO):");
@@ -367,6 +444,39 @@ export default function App() {
     } catch (error) {
       console.error("Error reversing entry:", error);
       addNotification("error", "Não foi possível realizar o estorno.", "Erro no Servidor");
+    }
+  };
+
+  const addLocation = async () => {
+    if (!newLocationName.trim()) return;
+    try {
+      const response = await fetch("/api/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newLocationName })
+      });
+      if (response.ok) {
+        setNewLocationName("");
+        fetchEntries();
+        addNotification("success", "Local adicionado com sucesso.", "Sucesso");
+      }
+    } catch (error) {
+      console.error("Error adding location:", error);
+      addNotification("error", "Erro ao adicionar local.", "Erro");
+    }
+  };
+
+  const deleteLocation = async (id: string | number) => {
+    if (!confirm("Tem certeza que deseja excluir este local?")) return;
+    try {
+      const response = await fetch(`/api/locations/${id}`, { method: "DELETE" });
+      if (response.ok) {
+        fetchEntries();
+        addNotification("success", "Local excluído com sucesso.", "Sucesso");
+      }
+    } catch (error) {
+      console.error("Error deleting location:", error);
+      addNotification("error", "Erro ao excluir local.", "Erro");
     }
   };
 
@@ -407,6 +517,67 @@ export default function App() {
 
   const printReport = () => {
     window.print();
+  };
+
+  const handleSubmitAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      const attendanceData = {
+        date: attendanceForm.date,
+        period: attendanceForm.period,
+        counts: attendanceForm.counts,
+        responsible: attendanceForm.responsible,
+        notes: attendanceForm.notes,
+        created_at: new Date().toISOString()
+      };
+
+      // Try Firestore first
+      const saveToFirestore = async () => {
+        if (!db || !isFirebaseEnabled) throw new Error("Firebase not available");
+        await addDoc(collection(db, "attendance"), attendanceData);
+      };
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 5000)
+      );
+
+      try {
+        await Promise.race([saveToFirestore(), timeoutPromise]);
+        addNotification("success", "Contagem registrada no Firebase.", "Sucesso");
+      } catch (fsError) {
+        console.error("Firebase save failed, trying local:", fsError);
+        const response = await fetch("/api/attendance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(attendanceData)
+        });
+        if (!response.ok) throw new Error("Local save failed");
+        addNotification("success", "Contagem registrada localmente.", "Sucesso");
+      }
+
+      // Reset counts to 0 for all locations
+      const resetCounts: Record<string, { men: number; women: number; children: number }> = {};
+      locations.forEach(loc => {
+        resetCounts[loc.name] = { men: 0, women: 0, children: 0 };
+      });
+
+      setAttendanceForm({
+        ...attendanceForm,
+        counts: resetCounts,
+        responsible: "",
+        notes: ""
+      });
+      fetchEntries();
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2000);
+    } catch (error) {
+      console.error("Error saving attendance:", error);
+      addNotification("error", "Erro ao salvar contagem.", "Erro");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1419,6 +1590,320 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === "attendance" && (
+            <motion.div
+              key="attendance-tab"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="max-w-4xl mx-auto w-full space-y-6"
+            >
+              <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                <div className="flex items-center gap-2 mb-8">
+                  <Users className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-lg md:text-xl font-bold text-slate-900">Contagem de Pessoas</h2>
+                </div>
+
+                <form onSubmit={handleSubmitAttendance} className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data</label>
+                      <input
+                        type="date"
+                        required
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                        value={attendanceForm.date}
+                        onChange={(e) => setAttendanceForm({ ...attendanceForm, date: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Período</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(["Manhã", "Tarde", "Noite"] as const).map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setAttendanceForm({ ...attendanceForm, period: p })}
+                            className={`py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border-2 ${
+                              attendanceForm.period === p 
+                                ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100" 
+                                : "bg-white text-slate-500 border-slate-100 hover:border-slate-200"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsável pela Contagem</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nome de quem realizou a contagem"
+                        className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                        value={attendanceForm.responsible}
+                        onChange={(e) => setAttendanceForm({ ...attendanceForm, responsible: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    {locations.length === 0 ? (
+                      <div className="p-12 text-center bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+                        <Users className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                        <p className="text-slate-500 font-medium">Nenhum local de contagem configurado.</p>
+                        <p className="text-xs text-slate-400 mt-1">Adicione locais na aba de Ajustes.</p>
+                      </div>
+                    ) : (
+                      locations.map((loc) => (
+                        <div key={loc.id} className="p-6 bg-slate-50/50 rounded-2xl border border-slate-100 space-y-4">
+                          <div className="flex items-center gap-2 text-slate-900 font-bold">
+                            {loc.is_default ? (loc.name === "Salão Principal" ? <Home className="w-4 h-4" /> : <MapPin className="w-4 h-4" />) : <LayoutDashboard className="w-4 h-4" />}
+                            <span className="text-sm uppercase tracking-wider">{loc.name}</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {[
+                              { id: "men", label: "Homens" },
+                              { id: "women", label: "Mulheres" },
+                              { id: "children", label: "Crianças" }
+                            ].map((cat) => (
+                              <div key={cat.id} className="space-y-2">
+                                <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 ml-1">{cat.label}</label>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || 0;
+                                      if (current > 0) {
+                                        setAttendanceForm({
+                                          ...attendanceForm,
+                                          counts: {
+                                            ...attendanceForm.counts,
+                                            [loc.name]: {
+                                              ...attendanceForm.counts[loc.name],
+                                              [cat.id]: current - 1
+                                            }
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-90"
+                                  >
+                                    <Minus className="w-4 h-4" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-bold text-slate-700 text-center"
+                                    value={attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || ""}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value) || 0;
+                                      setAttendanceForm({
+                                        ...attendanceForm,
+                                        counts: {
+                                          ...attendanceForm.counts,
+                                          [loc.name]: {
+                                            ...attendanceForm.counts[loc.name],
+                                            [cat.id]: val
+                                          }
+                                        }
+                                      });
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || 0;
+                                      setAttendanceForm({
+                                        ...attendanceForm,
+                                        counts: {
+                                          ...attendanceForm.counts,
+                                          [loc.name]: {
+                                            ...attendanceForm.counts[loc.name],
+                                            [cat.id]: current + 1
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Observações</label>
+                    <textarea
+                      placeholder="Alguma observação sobre a contagem?"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium min-h-[80px] resize-none"
+                      value={attendanceForm.notes}
+                      onChange={(e) => setAttendanceForm({ ...attendanceForm, notes: e.target.value })}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-5 h-5" />
+                        Salvar Contagem
+                      </>
+                    )}
+                  </button>
+                </form>
+              </section>
+
+              {attendanceEntries.length > 0 && (
+                <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-2">
+                      <History className="w-5 h-5 text-indigo-600" />
+                      <h2 className="text-lg md:text-xl font-bold text-slate-900">Histórico de Contagem</h2>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto -mx-6 md:-mx-8">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data/Período</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Detalhes por Local</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {(() => {
+                          // Group by date and period for totalizer
+                          const grouped: Record<string, Attendance[]> = {};
+                          attendanceEntries.forEach(att => {
+                            const key = `${att.date}_${att.period}`;
+                            if (!grouped[key]) grouped[key] = [];
+                            grouped[key].push(att);
+                          });
+
+                          return Object.entries(grouped).map(([key, entries]) => {
+                            const [date, period] = key.split("_");
+                            
+                            // Calculate totals for this group
+                            const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
+                            entries.forEach(entry => {
+                              Object.entries(entry.counts || {}).forEach(([locName, counts]) => {
+                                const c = counts as { men: number; women: number; children: number };
+                                if (!groupTotals[locName]) groupTotals[locName] = { men: 0, women: 0, children: 0 };
+                                groupTotals[locName].men += c.men;
+                                groupTotals[locName].women += c.women;
+                                groupTotals[locName].children += c.children;
+                              });
+                            });
+
+                            const grandTotal = Object.values(groupTotals).reduce((acc, curr) => acc + curr.men + curr.women + curr.children, 0);
+
+                            return (
+                              <React.Fragment key={key}>
+                                {/* Totalizer Row */}
+                                {entries.length > 1 && (
+                                  <tr className="bg-indigo-50/30">
+                                    <td className="px-6 py-4 align-top">
+                                      <div className="flex items-center gap-2">
+                                        <Calculator className="w-3 h-3 text-indigo-600" />
+                                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Total do Período</span>
+                                      </div>
+                                      <p className="text-[10px] font-bold text-slate-400">
+                                        {(() => {
+                                          const [y, m, d] = date.split("-");
+                                          return `${d}/${m}/${y}`;
+                                        })()} - {period}
+                                      </p>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                      <div className="space-y-3">
+                                        {Object.entries(groupTotals).map(([locName, counts]) => (
+                                          <div key={locName} className="flex flex-col gap-0.5">
+                                            <span className="text-xs font-black text-indigo-700">{locName}: {counts.men + counts.women + counts.children}</span>
+                                            <span className="text-[9px] text-indigo-400 font-bold uppercase tracking-tighter">H:{counts.men} M:{counts.women} C:{counts.children}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right align-top">
+                                      <span className="text-sm font-black text-indigo-600 tabular-nums">{grandTotal}</span>
+                                    </td>
+                                  </tr>
+                                )}
+
+                                {/* Individual Entries */}
+                                {entries.map((att) => {
+                                  const entryTotal = Object.values(att.counts || {}).reduce((acc, curr) => {
+                                    const c = curr as { men: number; women: number; children: number };
+                                    return acc + c.men + c.women + c.children;
+                                  }, 0);
+
+                                  return (
+                                    <tr key={att.id} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="px-6 py-4 align-top">
+                                        <p className="text-sm font-bold text-slate-900">
+                                          {(() => {
+                                            const [y, m, d] = att.date.split("-");
+                                            return `${d}/${m}/${y}`;
+                                          })()}
+                                        </p>
+                                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{att.period}</p>
+                                        {att.responsible && (
+                                          <div className="flex items-center gap-1 mt-1">
+                                            <User className="w-2.5 h-2.5 text-slate-400" />
+                                            <span className="text-[9px] font-medium text-slate-500">{att.responsible}</span>
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="px-6 py-4">
+                                        <div className="space-y-3">
+                                          {Object.entries(att.counts || {}).map(([locName, counts]) => {
+                                            const c = counts as { men: number; women: number; children: number };
+                                            return (
+                                              <div key={locName} className="flex flex-col gap-0.5">
+                                                <span className="text-xs font-bold text-slate-700">{locName}: {c.men + c.women + c.children}</span>
+                                                <span className="text-[9px] text-slate-400 uppercase tracking-tighter">H:{c.men} M:{c.women} C:{c.children}</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                      <td className="px-6 py-4 text-right align-top">
+                                        <span className="text-sm font-black text-indigo-600 tabular-nums">{entryTotal}</span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+            </motion.div>
+          )}
+
           {activeTab === "settings" && (
             <motion.div
               key="settings-tab"
@@ -1468,6 +1953,42 @@ export default function App() {
                       As configurações de nome são salvas localmente no seu navegador. Os dados financeiros são armazenados de forma segura no servidor.
                     </p>
                   </div>
+
+                  {userRole === "master" && (
+                    <div className="pt-6 border-t border-slate-100 space-y-4">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Gerenciar Locais de Contagem</h4>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Ex: Sala 7-10 anos"
+                          className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={newLocationName}
+                          onChange={(e) => setNewLocationName(e.target.value)}
+                        />
+                        <button
+                          onClick={addLocation}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                        >
+                          Adicionar
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {locations.map(loc => (
+                          <div key={loc.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="text-sm font-medium text-slate-700">{loc.name}</span>
+                            {!loc.is_default && (
+                              <button
+                                onClick={() => deleteLocation(loc.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Segurança e Acesso</h4>
@@ -1642,6 +2163,16 @@ export default function App() {
               <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
             </button>
           )}
+
+          <button
+            onClick={() => setActiveTab("attendance")}
+            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+              activeTab === "attendance" ? "text-indigo-600 scale-110" : "text-slate-400"
+            }`}
+          >
+            <Users className={`w-6 h-6 ${activeTab === "attendance" ? "fill-indigo-50" : ""}`} />
+            <span className="text-[10px] font-bold uppercase tracking-tighter">Pessoas</span>
+          </button>
 
           <button
             onClick={() => setActiveTab("settings")}

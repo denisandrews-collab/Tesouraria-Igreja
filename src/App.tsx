@@ -149,6 +149,7 @@ export default function App() {
   const [success, setSuccess] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"Todos" | "Dízimo" | "Oferta">("Todos");
+  const [periodFilter, setPeriodFilter] = useState<"all" | "currentMonth" | "prevMonth" | "currentYear">("all");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
   const [historyTab, setHistoryTab] = useState<"finance" | "attendance">("finance");
@@ -253,18 +254,69 @@ export default function App() {
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
     return entries.filter(entry => {
       const matchesSearch = entry.treasurer.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesFilter = filterType === "Todos" || entry.type === filterType;
       
+      let matchesPeriod = true;
+      if (periodFilter === "currentMonth") {
+        const [y, m] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === currentYear && parseInt(m) - 1 === currentMonth;
+      } else if (periodFilter === "prevMonth") {
+        const [y, m] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === prevYear && parseInt(m) - 1 === prevMonth;
+      } else if (periodFilter === "currentYear") {
+        const [y] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === currentYear;
+      }
+
       const matchesDateRange = (!dateRange.start || entry.date >= dateRange.start) &&
                                (!dateRange.end || entry.date <= dateRange.end);
 
-      return matchesSearch && matchesFilter && matchesDateRange;
+      return matchesSearch && matchesFilter && matchesPeriod && matchesDateRange;
     });
-  }, [entries, searchTerm, filterType, dateRange]);
+  }, [entries, searchTerm, filterType, dateRange, periodFilter]);
+
+  const filteredAttendanceEntries = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    return attendanceEntries.filter(entry => {
+      const matchesSearch = (entry.responsible && entry.responsible.toLowerCase().includes(searchTerm.toLowerCase())) || 
+                           entry.date.includes(searchTerm) ||
+                           (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      let matchesPeriod = true;
+      if (periodFilter === "currentMonth") {
+        const [y, m] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === currentYear && parseInt(m) - 1 === currentMonth;
+      } else if (periodFilter === "prevMonth") {
+        const [y, m] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === prevYear && parseInt(m) - 1 === prevMonth;
+      } else if (periodFilter === "currentYear") {
+        const [y] = entry.date.split("-");
+        matchesPeriod = parseInt(y) === currentYear;
+      }
+
+      const matchesDateRange = (!dateRange.start || entry.date >= dateRange.start) &&
+                               (!dateRange.end || entry.date <= dateRange.end);
+
+      return matchesSearch && matchesPeriod && matchesDateRange;
+    });
+  }, [attendanceEntries, searchTerm, dateRange, periodFilter]);
 
   useEffect(() => {
     fetchEntries();
@@ -1711,21 +1763,58 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 print:hidden">
-                    {(["Todos", "Dízimo", "Oferta"] as const).map((type) => (
+                  <div className="flex flex-wrap items-center gap-4 print:hidden">
+                    <div className="flex flex-wrap gap-2">
+                      {(["Todos", "Dízimo", "Oferta"] as const).map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => setFilterType(type)}
+                            className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                              filterType === type 
+                                ? "bg-indigo-600 text-white shadow-sm" 
+                                : "bg-slate-50 text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                    </div>
+                    <div className="w-px h-6 bg-slate-200 hidden md:block" />
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: "all", label: "Tudo" },
+                        { id: "currentMonth", label: "Mês Atual" },
+                        { id: "prevMonth", label: "Mês Anterior" },
+                        { id: "currentYear", label: "Ano Atual" }
+                      ].map((period) => (
                         <button
-                          key={type}
-                          onClick={() => setFilterType(type)}
+                          key={period.id}
+                          onClick={() => setPeriodFilter(period.id as any)}
                           className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
-                            filterType === type 
-                              ? "bg-indigo-600 text-white shadow-sm" 
+                            periodFilter === period.id 
+                              ? "bg-slate-800 text-white shadow-sm" 
                               : "bg-slate-50 text-slate-500 hover:text-slate-800"
                           }`}
                         >
-                          {type}
+                          {period.label}
                         </button>
                       ))}
                     </div>
+                    {(filterType !== "Todos" || periodFilter !== "all" || dateRange.start || dateRange.end || searchTerm) && (
+                      <button
+                        onClick={() => {
+                          setFilterType("Todos");
+                          setPeriodFilter("all");
+                          setDateRange({ start: "", end: "" });
+                          setSearchTerm("");
+                        }}
+                        className="px-3 py-1.5 text-[10px] font-bold text-rose-600 uppercase tracking-widest hover:bg-rose-50 rounded-lg transition-all flex items-center gap-1"
+                      >
+                        <X className="w-3 h-3" />
+                        Limpar
+                      </button>
+                    )}
+                  </div>
 
                     {filteredEntries.length > 0 && (
                       <div className="flex items-center gap-4 px-4 py-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
@@ -2191,6 +2280,75 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="space-y-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden">
+                      <div className="relative md:col-span-2">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por responsável, data ou notas..."
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                      </div>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="date"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={dateRange.start}
+                          onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        />
+                      </div>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="date"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={dateRange.end}
+                          onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 print:hidden">
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: "all", label: "Tudo" },
+                          { id: "currentMonth", label: "Mês Atual" },
+                          { id: "prevMonth", label: "Mês Anterior" },
+                          { id: "currentYear", label: "Ano Atual" }
+                        ].map((period) => (
+                          <button
+                            key={period.id}
+                            onClick={() => setPeriodFilter(period.id as any)}
+                            className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                              periodFilter === period.id 
+                                ? "bg-slate-800 text-white shadow-sm" 
+                                : "bg-slate-50 text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {period.label}
+                          </button>
+                        ))}
+                      </div>
+                      {(periodFilter !== "all" || dateRange.start || dateRange.end || searchTerm) && (
+                        <button
+                          onClick={() => {
+                            setPeriodFilter("all");
+                            setDateRange({ start: "", end: "" });
+                            setSearchTerm("");
+                          }}
+                          className="px-3 py-1.5 text-[10px] font-bold text-rose-600 uppercase tracking-widest hover:bg-rose-50 rounded-lg transition-all flex items-center gap-1"
+                        >
+                          <X className="w-3 h-3" />
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="overflow-x-auto -mx-6 md:-mx-8">
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -2204,7 +2362,7 @@ export default function App() {
                         {(() => {
                           // Group by date and period for totalizer
                           const grouped: Record<string, Attendance[]> = {};
-                          attendanceEntries.forEach(att => {
+                          filteredAttendanceEntries.forEach(att => {
                             const key = `${att.date}_${att.period}`;
                             if (!grouped[key]) grouped[key] = [];
                             grouped[key].push(att);

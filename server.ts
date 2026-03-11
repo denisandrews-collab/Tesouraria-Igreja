@@ -126,6 +126,16 @@ try {
   db.exec("ALTER TABLE attendance ADD COLUMN responsible TEXT");
 } catch (e) {}
 
+// Helper for Firestore with timeout
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Firestore operation timed out")), timeoutMs)
+    ),
+  ]);
+};
+
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
@@ -160,9 +170,13 @@ async function startServer() {
   app.get("/api/entries", async (req, res) => {
     try {
       if (firestore) {
-        const snapshot = await firestore.collection("entries").orderBy("created_at", "desc").get();
-        const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return res.json(entries);
+        try {
+          const snapshot = await withTimeout(firestore.collection("entries").orderBy("created_at", "desc").get());
+          const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return res.json(entries);
+        } catch (fsError) {
+          console.error("Firestore fetch entries failed, falling back to SQLite:", fsError);
+        }
       }
       const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
       res.json(entries);
@@ -194,14 +208,23 @@ async function startServer() {
       };
 
       let finalEntry: any;
+      let savedToFirestore = false;
+
       if (firestore) {
-        const docRef = await firestore.collection("entries").add(entryData);
-        finalEntry = { id: docRef.id, ...entryData };
-      } else {
+        try {
+          const docRef = await withTimeout(firestore.collection("entries").add(entryData));
+          finalEntry = { id: docRef.id, ...entryData };
+          savedToFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore save entry failed, falling back to SQLite:", fsError);
+        }
+      }
+
+      if (!savedToFirestore) {
         const info = db.prepare(
           "INSERT INTO entries (treasurer, date, type, amount, counts, notes, period) VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).run(treasurer, date, type, amount, counts ? JSON.stringify(counts) : null, notes || null, period || "Manhã");
-        finalEntry = { id: info.lastInsertRowid, ...entryData };
+        finalEntry = { id: Number(info.lastInsertRowid), ...entryData };
       }
       
       // Broadcast new entry to all clients
@@ -223,12 +246,20 @@ async function startServer() {
     }
 
     try {
+      let updatedInFirestore = false;
       if (firestore) {
-        await firestore.collection("entries").doc(id).update({
-          is_reversed: 1,
-          reversal_reason: reason
-        });
-      } else {
+        try {
+          await withTimeout(firestore.collection("entries").doc(id).update({
+            is_reversed: 1,
+            reversal_reason: reason
+          }));
+          updatedInFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore reverse entry failed, falling back to SQLite:", fsError);
+        }
+      }
+
+      if (!updatedInFirestore) {
         db.prepare("UPDATE entries SET is_reversed = 1, reversal_reason = ? WHERE id = ?").run(reason, id);
       }
       
@@ -243,9 +274,13 @@ async function startServer() {
   app.get("/api/attendance", async (req, res) => {
     try {
       if (firestore) {
-        const snapshot = await firestore.collection("attendance").orderBy("created_at", "desc").get();
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return res.json(data);
+        try {
+          const snapshot = await withTimeout(firestore.collection("attendance").orderBy("created_at", "desc").get());
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return res.json(data);
+        } catch (fsError) {
+          console.error("Firestore fetch attendance failed, falling back to SQLite:", fsError);
+        }
       }
       const data = db.prepare("SELECT * FROM attendance ORDER BY created_at DESC").all();
       // Parse counts JSON
@@ -278,18 +313,27 @@ async function startServer() {
       };
 
       let finalAttendance: any;
+      let savedToFirestore = false;
+
       if (firestore) {
-        const docRef = await firestore.collection("attendance").add({
-          ...attendanceData,
-          counts: typeof counts === 'string' ? JSON.parse(counts) : counts
-        });
-        finalAttendance = { id: docRef.id, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
-      } else {
+        try {
+          const docRef = await withTimeout(firestore.collection("attendance").add({
+            ...attendanceData,
+            counts: typeof counts === 'string' ? JSON.parse(counts) : counts
+          }));
+          finalAttendance = { id: docRef.id, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+          savedToFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore save attendance failed, falling back to SQLite:", fsError);
+        }
+      }
+
+      if (!savedToFirestore) {
         const info = db.prepare(`
           INSERT INTO attendance (date, period, counts, responsible, notes)
           VALUES (?, ?, ?, ?, ?)
         `).run(date, period, attendanceData.counts, attendanceData.responsible, attendanceData.notes);
-        finalAttendance = { id: info.lastInsertRowid, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+        finalAttendance = { id: Number(info.lastInsertRowid), ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
       }
       
       broadcast({ type: "NEW_ATTENDANCE", attendance: finalAttendance });
@@ -303,19 +347,23 @@ async function startServer() {
   app.get("/api/locations", async (req, res) => {
     try {
       if (firestore) {
-        const snapshot = await firestore.collection("locations").orderBy("created_at", "asc").get();
-        let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        if (data.length === 0) {
-          // Initialize defaults in firestore if empty
-          const defaults = [
-            { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }
-          ];
-          for (const d of defaults) {
-            const ref = await firestore.collection("locations").add(d);
-            data.push({ id: ref.id, ...d });
+        try {
+          const snapshot = await withTimeout(firestore.collection("locations").orderBy("created_at", "asc").get());
+          let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (data.length === 0) {
+            // Initialize defaults in firestore if empty
+            const defaults = [
+              { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }
+            ];
+            for (const d of defaults) {
+              const ref = await firestore.collection("locations").add(d);
+              data.push({ id: ref.id, ...d });
+            }
           }
+          return res.json(data);
+        } catch (fsError) {
+          console.error("Firestore fetch locations failed, falling back to SQLite:", fsError);
         }
-        return res.json(data);
       }
       const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
       if (data.length === 0) {
@@ -345,12 +393,21 @@ async function startServer() {
       };
 
       let finalLocation: any;
+      let savedToFirestore = false;
+
       if (firestore) {
-        const docRef = await firestore.collection("locations").add(locationData);
-        finalLocation = { id: docRef.id, ...locationData };
-      } else {
+        try {
+          const docRef = await withTimeout(firestore.collection("locations").add(locationData));
+          finalLocation = { id: docRef.id, ...locationData };
+          savedToFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore save location failed, falling back to SQLite:", fsError);
+        }
+      }
+
+      if (!savedToFirestore) {
         const info = db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 0)").run(name);
-        finalLocation = { id: info.lastInsertRowid, ...locationData };
+        finalLocation = { id: Number(info.lastInsertRowid), ...locationData };
       }
       
       broadcast({ type: "NEW_LOCATION", location: finalLocation });
@@ -367,9 +424,17 @@ async function startServer() {
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
+      let updatedInFirestore = false;
       if (firestore) {
-        await firestore.collection("locations").doc(id).update({ name });
-      } else {
+        try {
+          await withTimeout(firestore.collection("locations").doc(id).update({ name }));
+          updatedInFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore update location failed, falling back to SQLite:", fsError);
+        }
+      }
+
+      if (!updatedInFirestore) {
         const numericId = parseInt(id);
         if (!isNaN(numericId)) {
           db.prepare("UPDATE locations SET name = ? WHERE id = ?").run(name, numericId);
@@ -388,17 +453,25 @@ async function startServer() {
   app.delete("/api/locations/:id", async (req, res) => {
     const { id } = req.params;
     try {
+      let deletedInFirestore = false;
       if (firestore) {
-        const docRef = firestore.collection("locations").doc(id);
-        const doc = await docRef.get();
-        if (!doc.exists) {
-          return res.status(404).json({ error: "Local não encontrado." });
+        try {
+          const docRef = firestore.collection("locations").doc(id);
+          const doc = await withTimeout(docRef.get());
+          if (!doc.exists) {
+            return res.status(404).json({ error: "Local não encontrado." });
+          }
+          if (doc.data()?.is_default) {
+            return res.status(403).json({ error: "Não é possível excluir um local padrão." });
+          }
+          await withTimeout(docRef.delete());
+          deletedInFirestore = true;
+        } catch (fsError) {
+          console.error("Firestore delete location failed, falling back to SQLite:", fsError);
         }
-        if (doc.data()?.is_default) {
-          return res.status(403).json({ error: "Não é possível excluir um local padrão." });
-        }
-        await docRef.delete();
-      } else {
+      }
+
+      if (!deletedInFirestore) {
         const numericId = parseInt(id);
         const targetId = isNaN(numericId) ? id : numericId;
         

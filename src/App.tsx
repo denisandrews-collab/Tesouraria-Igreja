@@ -140,6 +140,10 @@ export default function App() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
+  const [showReversalModal, setShowReversalModal] = useState(false);
+  const [reversalReason, setReversalReason] = useState("");
+  const [entryToReverse, setEntryToReverse] = useState<string | number | null>(null);
+  const [showDeleteLocationConfirm, setShowDeleteLocationConfirm] = useState<string | number | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [attendanceEntries, setAttendanceEntries] = useState<Attendance[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -371,17 +375,25 @@ export default function App() {
 
     connectWS();
 
-    // Fallback polling every 30 seconds for mobile/unstable connections
+    // Fallback polling every 10 seconds for mobile/unstable connections
     pollInterval = setInterval(() => {
       if (!wsConnectedRef.current) {
         fetchEntries();
       }
-    }, 30000);
+    }, 10000);
+
+    // Refresh data when window is focused (useful for mobile)
+    const handleFocus = () => {
+      console.log("Window focused, refreshing data...");
+      fetchEntries();
+    };
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       if (socket) socket.close();
       clearTimeout(reconnectTimeout);
       clearInterval(pollInterval);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -472,9 +484,13 @@ export default function App() {
 
           return { entriesData, attendanceData, locationsData };
         } catch (e: any) {
+          console.error("Firestore error details:", e);
           if (e.message?.includes("Database '(default)' not found")) {
             setFirebaseStatus("error");
             console.warn("Firestore Database not created in console.");
+          } else if (e.message?.includes("permission-denied")) {
+            setFirebaseStatus("error");
+            console.warn("Firestore permission denied. Check security rules.");
           }
           throw e;
         }
@@ -498,19 +514,25 @@ export default function App() {
         console.error("Firestore fetch failed, falling back to local:", fsError);
       }
 
-      const response = await fetch("/api/entries");
+      const response = await fetch(`/api/entries?t=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       if (response.ok) {
         const data = await response.json();
         setEntries(Array.from(new Map(data.map((e: Entry) => [e.id, e])).values()) as Entry[]);
       }
 
-      const attResponse = await fetch("/api/attendance");
+      const attResponse = await fetch(`/api/attendance?t=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       if (attResponse.ok) {
         const data = await attResponse.json();
         setAttendanceEntries(Array.from(new Map(data.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
       }
 
-      const locResponse = await fetch("/api/locations");
+      const locResponse = await fetch(`/api/locations?t=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       if (locResponse.ok) {
         const data = await locResponse.json();
         setLocations(Array.from(new Map(data.map((l: Location) => [l.id, l])).values()) as Location[]);
@@ -538,24 +560,39 @@ export default function App() {
   }, [locations]);
 
   const reverseEntry = async (id: string | number) => {
-    const reason = prompt("Por favor, informe o motivo do estorno (OBRIGATÓRIO):");
-    if (!reason || reason.trim() === "") {
-      alert("O motivo do estorno é obrigatório.");
+    setEntryToReverse(id);
+    setReversalReason("");
+    setShowReversalModal(true);
+  };
+
+  const confirmReversal = async () => {
+    if (!entryToReverse) return;
+    if (!reversalReason || reversalReason.trim() === "") {
+      addNotification("warning", "O motivo do estorno é obrigatório.", "Campo Obrigatório");
       return;
     }
     
+    const id = entryToReverse;
+    const reason = reversalReason;
+
     try {
+      setSubmitting(true);
       // Try Firestore first if ID is string and db is available
-      if (typeof id === "string" && db) {
-        const entryRef = doc(db, "entries", id);
-        await updateDoc(entryRef, {
-          is_reversed: 1,
-          reversal_reason: reason
-        });
-        fetchEntries();
-        setSelectedEntry(null);
-        addNotification("success", "O lançamento foi estornado com sucesso no Firebase.", "Estorno Realizado");
-        return;
+      if (typeof id === "string" && db && isFirebaseEnabled) {
+        try {
+          const entryRef = doc(db, "entries", id);
+          await updateDoc(entryRef, {
+            is_reversed: 1,
+            reversal_reason: reason
+          });
+          fetchEntries();
+          setSelectedEntry(null);
+          setShowReversalModal(false);
+          addNotification("success", "O lançamento foi estornado com sucesso no Firebase.", "Estorno Realizado");
+          return;
+        } catch (fsError) {
+          console.error("Firestore updateDoc failed, falling back to API:", fsError);
+        }
       }
 
       // Fallback to local API
@@ -567,11 +604,17 @@ export default function App() {
       if (response.ok) {
         fetchEntries();
         setSelectedEntry(null);
+        setShowReversalModal(false);
         addNotification("success", "O lançamento foi estornado com sucesso localmente.", "Estorno Realizado");
+      } else {
+        const errorData = await response.json();
+        addNotification("error", errorData.error || "Não foi possível realizar o estorno.", "Erro");
       }
     } catch (error) {
       console.error("Error reversing entry:", error);
       addNotification("error", "Não foi possível realizar o estorno.", "Erro no Servidor");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -587,6 +630,9 @@ export default function App() {
         setNewLocationName("");
         fetchEntries();
         addNotification("success", "Local adicionado com sucesso.", "Sucesso");
+      } else {
+        const errorData = await response.json();
+        addNotification("error", errorData.error || "Erro ao adicionar local.", "Erro");
       }
     } catch (error) {
       console.error("Error adding location:", error);
@@ -595,12 +641,12 @@ export default function App() {
   };
 
   const deleteLocation = async (id: string | number) => {
-    if (!confirm("Tem certeza que deseja excluir este local?")) return;
     try {
       const response = await fetch(`/api/locations/${id}`, { method: "DELETE" });
       if (response.ok) {
         fetchEntries();
         addNotification("success", "Local excluído com sucesso.", "Sucesso");
+        setShowDeleteLocationConfirm(null);
       } else {
         const errorData = await response.json();
         addNotification("error", errorData.error || "Erro ao excluir local.", "Erro");
@@ -623,6 +669,9 @@ export default function App() {
         setEditingLocation(null);
         fetchEntries();
         addNotification("success", "Local atualizado com sucesso.", "Sucesso");
+      } else {
+        const errorData = await response.json();
+        addNotification("error", errorData.error || "Erro ao atualizar local.", "Erro");
       }
     } catch (error) {
       console.error("Error updating location:", error);
@@ -2602,19 +2651,38 @@ export default function App() {
                               <>
                                 <span className="text-sm font-medium text-slate-700">{loc.name}</span>
                                 <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => setEditingLocation({ id: loc.id, name: loc.name })}
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                  {!loc.is_default && (
-                                    <button
-                                      onClick={() => deleteLocation(loc.id)}
-                                      className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                  {showDeleteLocationConfirm === loc.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => deleteLocation(loc.id)}
+                                        className="px-2 py-1 bg-rose-600 text-white text-[10px] font-bold uppercase rounded-lg hover:bg-rose-700 transition-all"
+                                      >
+                                        Confirmar
+                                      </button>
+                                      <button
+                                        onClick={() => setShowDeleteLocationConfirm(null)}
+                                        className="px-2 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold uppercase rounded-lg hover:bg-slate-300 transition-all"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => setEditingLocation({ id: loc.id, name: loc.name })}
+                                        className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </button>
+                                      {!loc.is_default && (
+                                        <button
+                                          onClick={() => setShowDeleteLocationConfirm(loc.id)}
+                                          className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               </>
@@ -3022,6 +3090,87 @@ export default function App() {
         </div>
       )}
     </AnimatePresence>
+      {/* Reversal Modal */}
+      <AnimatePresence>
+        {showReversalModal && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 md:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !submitting && setShowReversalModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-2xl md:rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 md:p-8 border-b border-slate-100 flex items-center justify-between bg-amber-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                    <RotateCcw className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Estornar Lançamento</h2>
+                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Ação Irreversível</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowReversalModal(false)}
+                  className="p-2 hover:bg-white rounded-xl transition-colors text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 md:p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">
+                    Motivo do Estorno (Obrigatório)
+                  </label>
+                  <textarea
+                    value={reversalReason}
+                    onChange={(e) => setReversalReason(e.target.value)}
+                    placeholder="Descreva o motivo deste estorno..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium min-h-[120px] resize-none"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-700 font-medium leading-relaxed">
+                    Esta ação marcará o lançamento como estornado e não poderá ser desfeita. O valor continuará no histórico, mas não será contabilizado nos totais.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-100 flex gap-3">
+                <button
+                  onClick={() => setShowReversalModal(false)}
+                  className="flex-1 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmReversal}
+                  disabled={submitting || !reversalReason.trim()}
+                  className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-700 transition-all shadow-lg shadow-amber-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+                >
+                  {submitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Confirmar Estorno"
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* AI Insights Modal */}
       <AnimatePresence>
         {showAiModal && (

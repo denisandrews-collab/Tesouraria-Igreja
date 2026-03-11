@@ -6,19 +6,47 @@ import { fileURLToPath } from "url";
 import admin from "firebase-admin";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ... (Firebase Initialization code remains the same) ...
 let firestore: admin.firestore.Firestore | null = null;
 if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
   try {
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    
+    // Handle cases where the key might be wrapped in quotes
+    if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+      privateKey = privateKey.substring(1, privateKey.length - 1);
+    }
+    
+    // Handle cases where the user might have pasted the entire JSON service account
+    if (privateKey.trim().startsWith('{')) {
+      try {
+        const json = JSON.parse(privateKey);
+        if (json.private_key) {
+          privateKey = json.private_key;
+        }
+      } catch (e) {
+        // Not valid JSON, continue with original
+      }
+    }
+    
+    // Replace literal \n with actual newlines
+    privateKey = privateKey.replace(/\\n/g, '\n');
+
+    if (!privateKey.includes("-----BEGIN PRIVATE KEY-----")) {
+      console.warn("Warning: FIREBASE_PRIVATE_KEY does not contain expected PEM header. This may cause initialization to fail.");
+    }
+
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        privateKey: privateKey,
       }),
     });
     firestore = admin.firestore();
@@ -30,7 +58,6 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
 
 const db = new Database("treasury.db");
 
-// ... (Database initialization code remains the same) ...
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

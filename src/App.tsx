@@ -43,7 +43,8 @@ import {
   Home,
   MapPin,
   Minus,
-  Plus
+  Plus,
+  RefreshCw
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
@@ -150,6 +151,7 @@ export default function App() {
   const [filterType, setFilterType] = useState<"Todos" | "Dízimo" | "Oferta">("Todos");
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
+  const [historyTab, setHistoryTab] = useState<"finance" | "attendance">("finance");
   const [showValues, setShowValues] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
@@ -287,10 +289,13 @@ export default function App() {
           addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
           fetchEntries();
         } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
+          if (data.type === "NEW_ATTENDANCE") {
+            addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
+          }
           fetchEntries();
         }
       } catch (e) {
-        console.error("Error parsing WS message", e);
+        // Silent catch for parsing errors
       }
     };
 
@@ -311,6 +316,23 @@ export default function App() {
       };
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (locations.length > 0) {
+      const initialCounts: Record<string, { men: number; women: number; children: number }> = {};
+      locations.forEach(loc => {
+        if (!attendanceForm.counts[loc.name]) {
+          initialCounts[loc.name] = { men: 0, women: 0, children: 0 };
+        } else {
+          initialCounts[loc.name] = attendanceForm.counts[loc.name];
+        }
+      });
+      setAttendanceForm(prev => ({
+        ...prev,
+        counts: initialCounts
+      }));
+    }
+  }, [locations]);
 
   const addNotification = (type: Notification["type"], message: string, title?: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -655,28 +677,18 @@ export default function App() {
         created_at: new Date().toISOString()
       };
 
-      // Try Firestore first
-      const saveToFirestore = async () => {
-        if (!db || !isFirebaseEnabled) throw new Error("Firebase not available");
-        await addDoc(collection(db, "attendance"), attendanceData);
-      };
-
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout")), 5000)
-      );
-
       try {
-        await Promise.race([saveToFirestore(), timeoutPromise]);
-        addNotification("success", "Contagem registrada no Firebase.", "Sucesso");
-      } catch (fsError) {
-        console.error("Firebase save failed, trying local:", fsError);
         const response = await fetch("/api/attendance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(attendanceData)
         });
-        if (!response.ok) throw new Error("Local save failed");
-        addNotification("success", "Contagem registrada localmente.", "Sucesso");
+        if (!response.ok) throw new Error("Falha ao salvar contagem");
+        addNotification("success", "Contagem registrada com sucesso.", "Sucesso");
+      } catch (error) {
+        console.error("Error saving attendance:", error);
+        addNotification("error", "Erro ao salvar contagem.", "Erro");
+        throw error;
       }
 
       // Reset counts to 0 for all locations
@@ -729,83 +741,40 @@ export default function App() {
       setSubmitting(true);
       console.log("Iniciando salvamento...", entryData);
       
-      // Try Firestore with a timeout if db is available
-      const saveToFirestore = async () => {
-        if (!db) throw new Error("Database not initialized");
-        console.log("Tentando salvar no Firebase...");
-        const docRef = await addDoc(collection(db, "entries"), entryData);
-        console.log("Salvo no Firebase com ID:", docRef.id);
-        return docRef;
-      };
-
       try {
-        // Timeout de 5 segundos para o Firebase
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout no Firebase")), 5000)
-        );
-        
-        await Promise.race([saveToFirestore(), timeoutPromise]);
-        
-        setSuccess(true);
-        addNotification("success", "O lançamento foi registrado com sucesso no Firebase.", "Lançamento Salvo");
-        setFormData({
-          ...formData,
-          amount: "",
-          notes: ""
+        const response = await fetch("/api/entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entryData)
         });
-        setCounts({});
-        fetchEntries();
-        setTimeout(() => {
-          setSuccess(false);
-          setActiveTab(userRole === "master" ? "history" : "dashboard");
-        }, 2000);
-        return;
-      } catch (fsError) {
-        console.error("Erro no Firebase, tentando salvar localmente:", fsError);
-        addNotification("info", "Firebase indisponível, salvando localmente...", "Sincronização");
-      }
 
-      // Fallback to local API
-      console.log("Tentando salvar localmente...");
-      const controller = new AbortController();
-      const localTimeout = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch("/api/entries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          ...formData,
-          amount: parseFloat(formData.amount),
-          counts: Object.keys(counts).length > 0 ? counts : null
-        })
-      });
-      clearTimeout(localTimeout);
-
-      if (response.ok) {
-        setSuccess(true);
-        addNotification("success", "O lançamento foi registrado com sucesso no sistema.", "Lançamento Salvo");
-        setFormData({
-          ...formData,
-          amount: "",
-          notes: "",
-          period: "Manhã"
-        });
-        setCounts({});
-        fetchEntries();
-        setTimeout(() => {
-          setSuccess(false);
-          setActiveTab(userRole === "master" ? "history" : "dashboard");
-        }, 2000);
-      } else {
-        const errorData = await response.json();
-        addNotification("error", errorData.error || "Erro ao salvar o lançamento.", "Falha no Registro");
+        if (response.ok) {
+          setSuccess(true);
+          addNotification("success", "O lançamento foi registrado com sucesso.", "Lançamento Salvo");
+          setFormData({
+            ...formData,
+            amount: "",
+            notes: "",
+            period: "Manhã"
+          });
+          setCounts({});
+          fetchEntries();
+          setTimeout(() => {
+            setSuccess(false);
+            setActiveTab(userRole === "master" ? "history" : "dashboard");
+          }, 2000);
+        } else {
+          const errorData = await response.json();
+          addNotification("error", errorData.error || "Erro ao salvar o lançamento.", "Falha no Registro");
+        }
+      } catch (error) {
+        console.error("Error saving entry:", error);
+        addNotification("error", "Ocorreu um erro inesperado ao salvar.", "Erro Crítico");
+      } finally {
+        setSubmitting(false);
       }
     } catch (error) {
-      console.error("Error saving entry:", error);
-      addNotification("error", "Ocorreu um erro inesperado ao salvar.", "Erro Crítico");
-    } finally {
-      setSubmitting(false);
+      console.error("Error in handleSubmit:", error);
     }
   };
 
@@ -1220,11 +1189,19 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <History className="w-5 h-5 text-indigo-600" />
                         <h3 className="font-bold text-slate-900">Atividade Recente</h3>
-                        {wsConnected && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-md text-[8px] font-bold uppercase tracking-widest animate-pulse">
-                            <div className="w-1 h-1 bg-indigo-500 rounded-full" />
+                        {wsConnected ? (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded-md text-[8px] font-bold uppercase tracking-widest">
+                            <div className="w-1 h-1 bg-emerald-500 rounded-full" />
                             Live
                           </span>
+                        ) : (
+                          <button 
+                            onClick={() => fetchEntries()}
+                            className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[8px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-all"
+                          >
+                            <RefreshCw className={`w-2 h-2 ${loading ? 'animate-spin' : ''}`} />
+                            Atualizar
+                          </button>
                         )}
                       </div>
                       <button 
@@ -1272,6 +1249,75 @@ export default function App() {
                             </div>
                           </div>
                         ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Recent Attendance Mini List */}
+                  <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 print:shadow-none print:border-slate-200 print:rounded-xl">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-5 h-5 text-indigo-600" />
+                        <h3 className="font-bold text-slate-900">Contagem Recente</h3>
+                        {!wsConnected && (
+                          <button 
+                            onClick={() => fetchEntries()}
+                            className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[8px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-all"
+                          >
+                            <RefreshCw className={`w-2 h-2 ${loading ? 'animate-spin' : ''}`} />
+                            Atualizar
+                          </button>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setActiveTab("history");
+                          setHistoryTab("attendance");
+                        }}
+                        className="text-xs font-bold text-indigo-600 uppercase tracking-widest hover:underline print:hidden"
+                      >
+                        Ver Tudo
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      {attendanceEntries.length === 0 ? (
+                        <div className="py-12 text-center opacity-30">
+                          <Users className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhuma contagem</p>
+                        </div>
+                      ) : (
+                        attendanceEntries.slice(0, 3).map((att) => {
+                          const total = Object.values(att.counts || {}).reduce((acc, curr) => {
+                            const c = curr as { men: number; women: number; children: number };
+                            return acc + (c.men || 0) + (c.women || 0) + (c.children || 0);
+                          }, 0);
+                          return (
+                            <div key={att.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 print:bg-white print:border-slate-200 print:rounded-lg">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                                  <Users className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-800">
+                                    {att.period}
+                                  </p>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                    {(() => {
+                                      const [y, m, d] = att.date.split("-");
+                                      return `${d}/${m}/${y}`;
+                                    })()}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-slate-900 tabular-nums">
+                                  {total}
+                                </p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pessoas</p>
+                              </div>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -1576,7 +1622,28 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.98 }}
               className="space-y-6"
             >
-              <section className="bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+              {/* History Type Toggle */}
+              <div className="flex p-1 bg-slate-100 rounded-2xl w-fit mx-auto md:mx-0">
+                <button
+                  onClick={() => setHistoryTab("finance")}
+                  className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                    historyTab === "finance" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Financeiro
+                </button>
+                <button
+                  onClick={() => setHistoryTab("attendance")}
+                  className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                    historyTab === "attendance" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Pessoas
+                </button>
+              </div>
+
+              {historyTab === "finance" ? (
+                <section className="bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
                 {/* History Header & Filters */}
                 <div className="p-5 md:p-8 border-b border-slate-100 space-y-4 md:space-y-6">
                   <div className="flex items-center justify-between gap-4">
@@ -1793,6 +1860,108 @@ export default function App() {
                   )}
                 </div>
               </section>
+            ) : (
+                <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-600" />
+                      <h2 className="text-lg md:text-xl font-bold text-slate-900">Histórico de Contagem</h2>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto -mx-6 md:-mx-8">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data/Período</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Detalhes por Local</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {attendanceEntries.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-6 py-12 text-center opacity-30">
+                              <Users className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                              <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhuma contagem registrada</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          (() => {
+                            const grouped: Record<string, Attendance[]> = {};
+                            attendanceEntries.forEach(att => {
+                              const key = `${att.date}_${att.period}`;
+                              if (!grouped[key]) grouped[key] = [];
+                              grouped[key].push(att);
+                            });
+
+                            return Object.entries(grouped).map(([key, entries]) => {
+                              const [date, period] = key.split("_");
+                              const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
+                              entries.forEach(entry => {
+                                Object.entries(entry.counts || {}).forEach(([locName, counts]) => {
+                                  if (!groupTotals[locName]) groupTotals[locName] = { men: 0, women: 0, children: 0 };
+                                  const c = counts as { men: number; women: number; children: number };
+                                  groupTotals[locName].men += c.men || 0;
+                                  groupTotals[locName].women += c.women || 0;
+                                  groupTotals[locName].children += c.children || 0;
+                                });
+                              });
+
+                              const grandTotal = Object.values(groupTotals).reduce((acc, curr) => acc + curr.men + curr.women + curr.children, 0);
+
+                              return (
+                                <tr key={key} className="group hover:bg-slate-50/50 transition-colors">
+                                  <td className="px-6 py-6 align-top">
+                                    <p className="text-sm font-bold text-slate-900">
+                                      {(() => {
+                                        const [y, m, d] = date.split("-");
+                                        return `${d}/${m}/${y}`;
+                                      })()}
+                                    </p>
+                                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-1">{period}</p>
+                                  </td>
+                                  <td className="px-6 py-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                      {Object.entries(groupTotals).map(([locName, totals]) => (
+                                        <div key={locName} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-200 pb-1">{locName}</p>
+                                          <div className="flex gap-4">
+                                            <div className="text-center">
+                                              <p className="text-[8px] font-bold text-slate-400 uppercase">H</p>
+                                              <p className="text-xs font-bold text-slate-700">{totals.men}</p>
+                                            </div>
+                                            <div className="text-center">
+                                              <p className="text-[8px] font-bold text-slate-400 uppercase">M</p>
+                                              <p className="text-xs font-bold text-slate-700">{totals.women}</p>
+                                            </div>
+                                            <div className="text-center">
+                                              <p className="text-[8px] font-bold text-slate-400 uppercase">C</p>
+                                              <p className="text-xs font-bold text-slate-700">{totals.children}</p>
+                                            </div>
+                                            <div className="ml-auto text-right">
+                                              <p className="text-[8px] font-bold text-indigo-400 uppercase">Total</p>
+                                              <p className="text-xs font-bold text-indigo-600">{totals.men + totals.women + totals.children}</p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-6 text-right align-top">
+                                    <p className="text-xl font-bold text-slate-900 tabular-nums">{grandTotal}</p>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Pessoas</p>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
             </motion.div>
           )}
 

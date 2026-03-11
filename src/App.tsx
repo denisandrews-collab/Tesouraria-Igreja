@@ -159,6 +159,7 @@ export default function App() {
   const [serverFirebaseEnabled, setServerFirebaseEnabled] = useState(false);
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
   const [wsConnected, setWsConnected] = useState(false);
+  const wsConnectedRef = React.useRef(false);
   const [aiInsights, setAiInsights] = useState<string | null>(null);
   const [generatingInsights, setGeneratingInsights] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
@@ -321,42 +322,67 @@ export default function App() {
   useEffect(() => {
     fetchEntries();
     
-    // WebSocket setup for real-time notifications
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}`;
-    const socket = new WebSocket(wsUrl);
+    let socket: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout;
+    let pollInterval: NodeJS.Timeout;
 
-    socket.onopen = () => {
-      console.log("WebSocket connected");
-      setWsConnected(true);
-    };
+    const connectWS = () => {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}`;
+      socket = new WebSocket(wsUrl);
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "NEW_ENTRY") {
-          addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
-          fetchEntries();
-        } else if (data.type === "ENTRY_REVERSED") {
-          addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
-          fetchEntries();
-        } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
-          if (data.type === "NEW_ATTENDANCE") {
-            addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
+      socket.onopen = () => {
+        console.log("WebSocket connected");
+        setWsConnected(true);
+        wsConnectedRef.current = true;
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "NEW_ENTRY") {
+            addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
+            fetchEntries();
+          } else if (data.type === "ENTRY_REVERSED") {
+            addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
+            fetchEntries();
+          } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
+            if (data.type === "NEW_ATTENDANCE") {
+              addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
+            }
+            fetchEntries();
           }
-          fetchEntries();
+        } catch (e) {
+          // Silent catch for parsing errors
         }
-      } catch (e) {
-        // Silent catch for parsing errors
+      };
+
+      socket.onclose = () => {
+        console.log("WebSocket disconnected, retrying in 5s...");
+        setWsConnected(false);
+        wsConnectedRef.current = false;
+        reconnectTimeout = setTimeout(connectWS, 5000);
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    };
+
+    connectWS();
+
+    // Fallback polling every 30 seconds for mobile/unstable connections
+    pollInterval = setInterval(() => {
+      if (!wsConnectedRef.current) {
+        fetchEntries();
       }
-    };
+    }, 30000);
 
-    socket.onclose = () => {
-      console.log("WebSocket disconnected");
-      setWsConnected(false);
+    return () => {
+      if (socket) socket.close();
+      clearTimeout(reconnectTimeout);
+      clearInterval(pollInterval);
     };
-
-    return () => socket.close();
   }, []);
 
   useEffect(() => {
@@ -400,8 +426,10 @@ export default function App() {
 
   const fetchEntries = async () => {
     try {
-      // Check server config first
-      const configResponse = await fetch("/api/config");
+      // Check server config first with cache busting
+      const configResponse = await fetch(`/api/config?t=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       let isServerFirebase = false;
       if (configResponse.ok) {
         const config = await configResponse.json();

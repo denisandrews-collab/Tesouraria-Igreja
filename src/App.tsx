@@ -386,9 +386,9 @@ export default function App() {
       try {
         const result = await Promise.race([fetchFromFirestore(), timeoutPromise]) as any;
         if (result) {
-          setEntries(result.entriesData);
-          setAttendanceEntries(result.attendanceData);
-          setLocations(result.locationsData);
+          setEntries(Array.from(new Map(result.entriesData.map((e: Entry) => [e.id, e])).values()) as Entry[]);
+          setAttendanceEntries(Array.from(new Map(result.attendanceData.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
+          setLocations(Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[]);
           setLoading(false);
           return;
         }
@@ -396,23 +396,22 @@ export default function App() {
         console.error("Firestore fetch failed, falling back to local:", fsError);
       }
 
-      // Fallback to local API
       const response = await fetch("/api/entries");
       if (response.ok) {
         const data = await response.json();
-        setEntries(data);
+        setEntries(Array.from(new Map(data.map((e: Entry) => [e.id, e])).values()) as Entry[]);
       }
 
       const attResponse = await fetch("/api/attendance");
       if (attResponse.ok) {
         const data = await attResponse.json();
-        setAttendanceEntries(data);
+        setAttendanceEntries(Array.from(new Map(data.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
       }
 
       const locResponse = await fetch("/api/locations");
       if (locResponse.ok) {
         const data = await locResponse.json();
-        setLocations(data);
+        setLocations(Array.from(new Map(data.map((l: Location) => [l.id, l])).values()) as Location[]);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -1432,7 +1431,7 @@ export default function App() {
                         onChange={(e) => setFormData({ ...formData, treasurer: e.target.value })}
                       />
                       <datalist id="treasurers">
-                        {stats.uniqueTreasurers.map(t => <option key={t} value={t} />)}
+                        {stats.uniqueTreasurers.filter(Boolean).map(t => <option key={t} value={t} />)}
                       </datalist>
                     </div>
                   </div>
@@ -2667,6 +2666,7 @@ export default function App() {
           </div>
         </div>
       )}
+    </AnimatePresence>
       {/* AI Insights Modal */}
       <AnimatePresence>
         {showAiModal && (
@@ -2774,7 +2774,6 @@ export default function App() {
           <span className="text-[10px] font-bold uppercase tracking-widest">Histórico</span>
         </motion.button>
       </div>
-    </AnimatePresence>
-  </div>
-);
+    </div>
+  );
 }

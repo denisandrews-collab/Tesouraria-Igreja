@@ -60,6 +60,7 @@ import {
   orderBy, 
   updateDoc, 
   doc,
+  deleteDoc,
   Timestamp
 } from "firebase/firestore";
 import { 
@@ -362,14 +363,26 @@ export default function App() {
       };
 
       socket.onclose = () => {
-        console.log("WebSocket disconnected, retrying in 5s...");
+        if (wsConnectedRef.current) {
+          console.log("WebSocket disconnected, retrying in 5s...");
+        }
         setWsConnected(false);
         wsConnectedRef.current = false;
         reconnectTimeout = setTimeout(connectWS, 5000);
       };
 
-      socket.onerror = () => {
-        socket?.close();
+      socket.onerror = (err) => {
+        // Only log if we were previously connected to avoid spamming in serverless environments
+        if (wsConnectedRef.current) {
+          console.warn("WebSocket error:", err);
+        }
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          try {
+            socket.close();
+          } catch (e) {
+            // Ignore close errors
+          }
+        }
       };
     };
 
@@ -621,6 +634,25 @@ export default function App() {
   const addLocation = async () => {
     if (!newLocationName.trim()) return;
     try {
+      const locationData = {
+        name: newLocationName,
+        is_default: 0,
+        created_at: new Date().toISOString()
+      };
+
+      // Try Firestore first for Vercel/Serverless compatibility
+      if (db && isFirebaseEnabled) {
+        try {
+          await addDoc(collection(db, "locations"), locationData);
+          setNewLocationName("");
+          fetchEntries();
+          addNotification("success", "Local adicionado com sucesso no Firebase.", "Sucesso");
+          return;
+        } catch (fsError) {
+          console.error("Firestore addLocation failed, falling back to API:", fsError);
+        }
+      }
+
       const response = await fetch("/api/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -631,24 +663,37 @@ export default function App() {
         fetchEntries();
         addNotification("success", "Local adicionado com sucesso.", "Sucesso");
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ error: "Erro de comunicação com o servidor." }));
         addNotification("error", errorData.error || "Erro ao adicionar local.", "Erro");
       }
     } catch (error) {
       console.error("Error adding location:", error);
-      addNotification("error", "Erro ao adicionar local.", "Erro");
+      addNotification("error", "Erro ao adicionar local. Verifique sua conexão.", "Erro");
     }
   };
 
   const deleteLocation = async (id: string | number) => {
     try {
+      // Try Firestore first
+      if (typeof id === "string" && db && isFirebaseEnabled) {
+        try {
+          await deleteDoc(doc(db, "locations", id));
+          fetchEntries();
+          addNotification("success", "Local excluído com sucesso no Firebase.", "Sucesso");
+          setShowDeleteLocationConfirm(null);
+          return;
+        } catch (fsError) {
+          console.error("Firestore deleteLocation failed, falling back to API:", fsError);
+        }
+      }
+
       const response = await fetch(`/api/locations/${id}`, { method: "DELETE" });
       if (response.ok) {
         fetchEntries();
         addNotification("success", "Local excluído com sucesso.", "Sucesso");
         setShowDeleteLocationConfirm(null);
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ error: "Erro de comunicação com o servidor." }));
         addNotification("error", errorData.error || "Erro ao excluir local.", "Erro");
       }
     } catch (error) {
@@ -660,17 +705,33 @@ export default function App() {
   const editLocation = async () => {
     if (!editingLocation || !editingLocation.name.trim()) return;
     try {
-      const response = await fetch(`/api/locations/${editingLocation.id}`, {
+      const id = editingLocation.id;
+      const name = editingLocation.name;
+
+      // Try Firestore first
+      if (typeof id === "string" && db && isFirebaseEnabled) {
+        try {
+          await updateDoc(doc(db, "locations", id), { name });
+          setEditingLocation(null);
+          fetchEntries();
+          addNotification("success", "Local atualizado com sucesso no Firebase.", "Sucesso");
+          return;
+        } catch (fsError) {
+          console.error("Firestore editLocation failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/locations/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editingLocation.name })
+        body: JSON.stringify({ name })
       });
       if (response.ok) {
         setEditingLocation(null);
         fetchEntries();
         addNotification("success", "Local atualizado com sucesso.", "Sucesso");
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ error: "Erro de comunicação com o servidor." }));
         addNotification("error", errorData.error || "Erro ao atualizar local.", "Erro");
       }
     } catch (error) {
@@ -806,18 +867,32 @@ export default function App() {
         created_at: new Date().toISOString()
       };
 
-      try {
-        const response = await fetch("/api/attendance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(attendanceData)
-        });
-        if (!response.ok) throw new Error("Falha ao salvar contagem");
-        addNotification("success", "Contagem registrada com sucesso.", "Sucesso");
-      } catch (error) {
-        console.error("Error saving attendance:", error);
-        addNotification("error", "Erro ao salvar contagem.", "Erro");
-        throw error;
+      // Try Firestore first
+      let saved = false;
+      if (db && isFirebaseEnabled) {
+        try {
+          await addDoc(collection(db, "attendance"), attendanceData);
+          addNotification("success", "Contagem registrada com sucesso no Firebase.", "Sucesso");
+          saved = true;
+        } catch (fsError) {
+          console.error("Firestore save attendance failed, falling back to API:", fsError);
+        }
+      }
+
+      if (!saved) {
+        try {
+          const response = await fetch("/api/attendance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(attendanceData)
+          });
+          if (!response.ok) throw new Error("Falha ao salvar contagem");
+          addNotification("success", "Contagem registrada com sucesso.", "Sucesso");
+        } catch (error) {
+          console.error("Error saving attendance:", error);
+          addNotification("error", "Erro ao salvar contagem no servidor.", "Erro");
+          throw error;
+        }
       }
 
       // Reset counts to 0 for all locations
@@ -837,7 +912,7 @@ export default function App() {
       setTimeout(() => setSuccess(false), 2000);
     } catch (error) {
       console.error("Error saving attendance:", error);
-      addNotification("error", "Erro ao salvar contagem.", "Erro");
+      addNotification("error", "Erro ao salvar contagem. Verifique sua conexão.", "Erro");
     } finally {
       setSubmitting(false);
     }
@@ -870,16 +945,14 @@ export default function App() {
       setSubmitting(true);
       console.log("Iniciando salvamento...", entryData);
       
-      try {
-        const response = await fetch("/api/entries", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entryData)
-        });
-
-        if (response.ok) {
+      // Try Firestore first for Vercel/Serverless compatibility
+      let saved = false;
+      if (db && isFirebaseEnabled) {
+        try {
+          await addDoc(collection(db, "entries"), entryData);
+          saved = true;
           setSuccess(true);
-          addNotification("success", "O lançamento foi registrado com sucesso.", "Lançamento Salvo");
+          addNotification("success", "O lançamento foi registrado com sucesso no Firebase.", "Lançamento Salvo");
           setFormData({
             ...formData,
             amount: "",
@@ -892,14 +965,45 @@ export default function App() {
             setSuccess(false);
             setActiveTab(userRole === "master" ? "history" : "dashboard");
           }, 2000);
-        } else {
-          const errorData = await response.json();
-          addNotification("error", errorData.error || "Erro ao salvar o lançamento.", "Falha no Registro");
+        } catch (fsError) {
+          console.error("Firestore save entry failed, falling back to API:", fsError);
         }
-      } catch (error) {
-        console.error("Error saving entry:", error);
-        addNotification("error", "Ocorreu um erro inesperado ao salvar.", "Erro Crítico");
-      } finally {
+      }
+
+      if (!saved) {
+        try {
+          const response = await fetch("/api/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entryData)
+          });
+
+          if (response.ok) {
+            setSuccess(true);
+            addNotification("success", "O lançamento foi registrado com sucesso.", "Lançamento Salvo");
+            setFormData({
+              ...formData,
+              amount: "",
+              notes: "",
+              period: "Manhã"
+            });
+            setCounts({});
+            fetchEntries();
+            setTimeout(() => {
+              setSuccess(false);
+              setActiveTab(userRole === "master" ? "history" : "dashboard");
+            }, 2000);
+          } else {
+            const errorData = await response.json().catch(() => ({ error: "Erro de comunicação com o servidor." }));
+            addNotification("error", errorData.error || "Erro ao salvar o lançamento.", "Falha no Registro");
+          }
+        } catch (error) {
+          console.error("Error saving entry:", error);
+          addNotification("error", "Ocorreu um erro inesperado ao salvar no servidor.", "Erro Crítico");
+        } finally {
+          setSubmitting(false);
+        }
+      } else {
         setSubmitting(false);
       }
     } catch (error) {

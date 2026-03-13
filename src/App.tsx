@@ -518,7 +518,12 @@ export default function App() {
         const result = await Promise.race([fetchFromFirestore(), timeoutPromise]) as any;
         if (result) {
           setEntries(Array.from(new Map(result.entriesData.map((e: Entry) => [e.id, e])).values()) as Entry[]);
-          setAttendanceEntries(Array.from(new Map(result.attendanceData.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
+          const sortedAttendance = (result.attendanceData || []).sort((a: Attendance, b: Attendance) => {
+            if (a.date !== b.date) return b.date.localeCompare(a.date);
+            const periodOrder: Record<string, number> = { "Noite": 3, "Tarde": 2, "Manhã": 1 };
+            return (periodOrder[b.period] || 0) - (periodOrder[a.period] || 0);
+          });
+          setAttendanceEntries(Array.from(new Map(sortedAttendance.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
           setLocations(Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[]);
           setLoading(false);
           return;
@@ -549,7 +554,12 @@ export default function App() {
       if (attResponse.ok) {
         const data = await attResponse.json();
         if (Array.isArray(data)) {
-          setAttendanceEntries(Array.from(new Map(data.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
+          const sortedAttendance = data.sort((a: Attendance, b: Attendance) => {
+            if (a.date !== b.date) return b.date.localeCompare(a.date);
+            const periodOrder: Record<string, number> = { "Noite": 3, "Tarde": 2, "Manhã": 1 };
+            return (periodOrder[b.period] || 0) - (periodOrder[a.period] || 0);
+          });
+          setAttendanceEntries(Array.from(new Map(sortedAttendance.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
         }
       }
 
@@ -2165,23 +2175,34 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {attendanceEntries.length === 0 ? (
+                        {filteredAttendanceEntries.length === 0 ? (
                           <tr>
                             <td colSpan={3} className="px-6 py-12 text-center opacity-30">
                               <Users className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                              <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhuma contagem registrada</p>
+                              <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Nenhuma contagem encontrada</p>
                             </td>
                           </tr>
                         ) : (
                           (() => {
                             const grouped: Record<string, Attendance[]> = {};
-                            attendanceEntries.forEach(att => {
+                            filteredAttendanceEntries.forEach(att => {
                               const key = `${att.date}_${att.period}`;
                               if (!grouped[key]) grouped[key] = [];
                               grouped[key].push(att);
                             });
 
-                            return Object.entries(grouped).map(([key, entries]) => {
+                            // Sort keys by date descending, then period (Noite > Tarde > Manhã)
+                            const sortedKeys = Object.keys(grouped).sort((a, b) => {
+                              const [dateA, periodA] = a.split("_");
+                              const [dateB, periodB] = b.split("_");
+                              if (dateA !== dateB) return dateB.localeCompare(dateA);
+                              
+                              const periodOrder: Record<string, number> = { "Noite": 3, "Tarde": 2, "Manhã": 1 };
+                              return (periodOrder[periodB] || 0) - (periodOrder[periodA] || 0);
+                            });
+
+                            return sortedKeys.map((key) => {
+                              const entries = grouped[key];
                               const [date, period] = key.split("_");
                               const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
                               entries.forEach(entry => {
@@ -2565,7 +2586,18 @@ export default function App() {
                             grouped[key].push(att);
                           });
 
-                          return Object.entries(grouped).map(([key, entries]) => {
+                          // Sort keys by date descending, then period
+                          const sortedKeys = Object.keys(grouped).sort((a, b) => {
+                            const [dateA, periodA] = a.split("_");
+                            const [dateB, periodB] = b.split("_");
+                            if (dateA !== dateB) return dateB.localeCompare(dateA);
+                            
+                            const periodOrder: Record<string, number> = { "Noite": 3, "Tarde": 2, "Manhã": 1 };
+                            return (periodOrder[periodB] || 0) - (periodOrder[periodA] || 0);
+                          });
+
+                          return sortedKeys.map((key) => {
+                            const entries = grouped[key];
                             const [date, period] = key.split("_");
                             
                             // Calculate totals for this group

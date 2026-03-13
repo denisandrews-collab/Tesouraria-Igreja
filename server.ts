@@ -1,6 +1,5 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import admin from "firebase-admin";
@@ -56,53 +55,60 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
   }
 }
 
-const db = new Database("treasury.db");
+let db: any = null;
+try {
+  const Database = (await import("better-sqlite3")).default;
+  db = new Database("treasury.db");
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    treasurer TEXT NOT NULL,
-    date TEXT NOT NULL,
-    type TEXT NOT NULL,
-    amount REAL NOT NULL,
-    counts TEXT,
-    notes TEXT,
-    is_reversed INTEGER DEFAULT 0,
-    reversal_reason TEXT,
-    period TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      treasurer TEXT NOT NULL,
+      date TEXT NOT NULL,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      counts TEXT,
+      notes TEXT,
+      is_reversed INTEGER DEFAULT 0,
+      reversal_reason TEXT,
+      period TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS attendance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    period TEXT NOT NULL,
-    counts TEXT NOT NULL,
-    responsible TEXT,
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      period TEXT NOT NULL,
+      counts TEXT NOT NULL,
+      responsible TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS locations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    is_default INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      is_default INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-// Insert default locations if they don't exist
-const defaultLocations = ["Salão Principal"];
-defaultLocations.forEach(name => {
-  const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
-  if (!exists) {
-    db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
-  }
-});
+  // Insert default locations if they don't exist
+  const defaultLocations = ["Salão Principal"];
+  defaultLocations.forEach(name => {
+    const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
+    if (!exists) {
+      db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
+    }
+  });
+  console.log("SQLite initialized successfully");
+} catch (error) {
+  console.error("Failed to initialize SQLite (this is expected on some serverless platforms):", error);
+}
 
 const columns = [
   { name: "counts", type: "TEXT" },
@@ -178,8 +184,11 @@ async function startServer() {
           console.error("Firestore fetch entries failed, falling back to SQLite:", fsError);
         }
       }
-      const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
-      res.json(entries);
+      if (db) {
+        const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
+        return res.json(entries);
+      }
+      res.status(503).json({ error: "Database not available and Firestore not configured" });
     } catch (error) {
       console.error("Error fetching entries:", error);
       res.status(500).json({ error: "Failed to fetch entries" });
@@ -221,6 +230,9 @@ async function startServer() {
       }
 
       if (!savedToFirestore) {
+        if (!db) {
+          throw new Error("No database available to save entry");
+        }
         const info = db.prepare(
           "INSERT INTO entries (treasurer, date, type, amount, counts, notes, period) VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).run(treasurer, date, type, amount, counts ? JSON.stringify(counts) : null, notes || null, period || "Manhã");
@@ -260,6 +272,7 @@ async function startServer() {
       }
 
       if (!updatedInFirestore) {
+        if (!db) throw new Error("Database not available");
         db.prepare("UPDATE entries SET is_reversed = 1, reversal_reason = ? WHERE id = ?").run(reason, id);
       }
       
@@ -282,13 +295,16 @@ async function startServer() {
           console.error("Firestore fetch attendance failed, falling back to SQLite:", fsError);
         }
       }
-      const data = db.prepare("SELECT * FROM attendance ORDER BY created_at DESC").all();
-      // Parse counts JSON
-      const parsedData = data.map((item: any) => ({
-        ...item,
-        counts: JSON.parse(item.counts)
-      }));
-      res.json(parsedData);
+      if (db) {
+        const data = db.prepare("SELECT * FROM attendance ORDER BY created_at DESC").all();
+        // Parse counts JSON
+        const parsedData = data.map((item: any) => ({
+          ...item,
+          counts: JSON.parse(item.counts)
+        }));
+        return res.json(parsedData);
+      }
+      res.status(503).json({ error: "Database not available and Firestore not configured" });
     } catch (error) {
       console.error("Error fetching attendance:", error);
       res.status(500).json({ error: "Failed to fetch attendance" });
@@ -329,6 +345,7 @@ async function startServer() {
       }
 
       if (!savedToFirestore) {
+        if (!db) throw new Error("Database not available");
         const info = db.prepare(`
           INSERT INTO attendance (date, period, counts, responsible, notes)
           VALUES (?, ?, ?, ?, ?)
@@ -365,16 +382,19 @@ async function startServer() {
           console.error("Firestore fetch locations failed, falling back to SQLite:", fsError);
         }
       }
-      const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
-      if (data.length === 0) {
-        // Ensure defaults in SQLite if somehow empty
-        const defaultLocations = ["Salão Principal"];
-        defaultLocations.forEach(name => {
-          db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
-        });
-        return res.json(db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all());
+      if (db) {
+        const data = db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all();
+        if (data.length === 0) {
+          // Ensure defaults in SQLite if somehow empty
+          const defaultLocations = ["Salão Principal"];
+          defaultLocations.forEach(name => {
+            db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
+          });
+          return res.json(db.prepare("SELECT * FROM locations ORDER BY created_at ASC").all());
+        }
+        return res.json(data);
       }
-      res.json(data);
+      res.status(503).json({ error: "Database not available and Firestore not configured" });
     } catch (error) {
       console.error("Error fetching locations:", error);
       res.status(500).json({ error: "Failed to fetch locations" });
@@ -406,6 +426,7 @@ async function startServer() {
       }
 
       if (!savedToFirestore) {
+        if (!db) throw new Error("Database not available");
         const info = db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 0)").run(name);
         finalLocation = { id: Number(info.lastInsertRowid), ...locationData };
       }
@@ -435,6 +456,7 @@ async function startServer() {
       }
 
       if (!updatedInFirestore) {
+        if (!db) throw new Error("Database not available");
         const numericId = parseInt(id);
         if (!isNaN(numericId)) {
           db.prepare("UPDATE locations SET name = ? WHERE id = ?").run(name, numericId);
@@ -472,6 +494,7 @@ async function startServer() {
       }
 
       if (!deletedInFirestore) {
+        if (!db) throw new Error("Database not available");
         const numericId = parseInt(id);
         const targetId = isNaN(numericId) ? id : numericId;
         

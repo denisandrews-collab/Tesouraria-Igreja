@@ -532,7 +532,15 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setEntries(Array.from(new Map(data.map((e: Entry) => [e.id, e])).values()) as Entry[]);
+        if (Array.isArray(data)) {
+          setEntries(Array.from(new Map(data.map((e: Entry) => [e.id, e])).values()) as Entry[]);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("API entries fetch failed:", errorData);
+        if (response.status === 503) {
+          throw new Error("Servidor em modo de manutenção ou Firebase não configurado.");
+        }
       }
 
       const attResponse = await fetch(`/api/attendance?t=${Date.now()}`, {
@@ -540,7 +548,9 @@ export default function App() {
       });
       if (attResponse.ok) {
         const data = await attResponse.json();
-        setAttendanceEntries(Array.from(new Map(data.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
+        if (Array.isArray(data)) {
+          setAttendanceEntries(Array.from(new Map(data.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
+        }
       }
 
       const locResponse = await fetch(`/api/locations?t=${Date.now()}`, {
@@ -548,11 +558,17 @@ export default function App() {
       });
       if (locResponse.ok) {
         const data = await locResponse.json();
-        setLocations(Array.from(new Map(data.map((l: Location) => [l.id, l])).values()) as Location[]);
+        if (Array.isArray(data)) {
+          setLocations(Array.from(new Map(data.map((l: Location) => [l.id, l])).values()) as Location[]);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching data:", error);
-      addNotification("error", "Erro ao sincronizar dados com o servidor.", "Erro de Conexão");
+      const isVercel = window.location.hostname.includes("vercel.app");
+      const message = isVercel && !serverFirebaseEnabled 
+        ? "Erro de conexão. No Vercel, o Firebase precisa estar configurado."
+        : (error.message || "Erro ao sincronizar dados com o servidor.");
+      addNotification("error", message, "Erro de Conexão");
     } finally {
       setLoading(false);
     }

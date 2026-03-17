@@ -316,6 +316,10 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return entries.filter(entry => {
+      if (userRole === "user") {
+        const today = new Date().toISOString().split("T")[0];
+        if (entry.date !== today) return false;
+      }
       const matchesSearch = entry.treasurer.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -349,6 +353,10 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return attendanceEntries.filter(entry => {
+      if (userRole === "user") {
+        const today = new Date().toISOString().split("T")[0];
+        if (entry.date !== today) return false;
+      }
       const matchesSearch = (entry.responsible && entry.responsible.toLowerCase().includes(searchTerm.toLowerCase())) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -1238,7 +1246,7 @@ export default function App() {
               )}
             </div>
             <div className="flex items-center gap-2 ml-10 md:ml-13">
-              <p className="text-xs md:text-sm text-slate-500 font-medium">Gestão Financeira Eclesiástica</p>
+              <p className="text-xs md:text-sm text-slate-500 font-medium">Gestão da Igreja</p>
               <div className="w-1 h-1 bg-slate-300 rounded-full" />
               <p className="text-xs md:text-sm text-slate-400 font-medium">
                 {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -1635,7 +1643,7 @@ export default function App() {
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhuma atividade</p>
                         </div>
                       ) : (
-                        entries.slice(0, 5).map((entry) => (
+                        filteredEntries.slice(0, 5).map((entry) => (
                           <div key={entry.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 print:bg-white print:border-slate-200 print:rounded-lg">
                             <div className="flex items-center gap-4">
                               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
@@ -1697,13 +1705,13 @@ export default function App() {
                       </button>
                     </div>
                     <div className="space-y-4">
-                      {attendanceEntries.length === 0 ? (
+                      {filteredAttendanceEntries.length === 0 ? (
                         <div className="py-12 text-center opacity-30">
                           <Users className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhuma contagem</p>
                         </div>
                       ) : (
-                        attendanceEntries.slice(0, 3).map((att) => {
+                        filteredAttendanceEntries.slice(0, 3).map((att) => {
                           const rawCounts = att.counts || {};
                           let countsObj: Record<string, any> = {};
                           try {
@@ -3389,11 +3397,11 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bottom Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200/60 px-6 py-3 z-50 print:hidden">
-        <div className="max-w-md mx-auto flex justify-between items-center">
+      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200/60 px-4 py-3 z-50 print:hidden">
+        <div className="max-w-md mx-auto flex justify-between items-center overflow-x-auto no-scrollbar gap-6">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
               activeTab === "dashboard" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3403,7 +3411,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("calculator")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
               activeTab === "calculator" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3413,7 +3421,7 @@ export default function App() {
           
           <button
             onClick={() => setActiveTab("form")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
               activeTab === "form" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3424,7 +3432,7 @@ export default function App() {
           {(userRole === "master" || userRole === "junior") && (
             <button
               onClick={() => setActiveTab("history")}
-              className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
                 activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
               }`}
             >
@@ -3435,7 +3443,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("attendance")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
               activeTab === "attendance" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3445,7 +3453,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("settings")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
               activeTab === "settings" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >

@@ -316,9 +316,10 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return entries.filter(entry => {
-      if (userRole === "user") {
-        const today = new Date().toISOString().split("T")[0];
-        if (entry.date !== today) return false;
+      if (userRole !== "master") {
+        const today = new Date();
+        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        if (entry.date !== localToday) return false;
       }
       const matchesSearch = entry.treasurer.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            entry.date.includes(searchTerm) ||
@@ -353,9 +354,10 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return attendanceEntries.filter(entry => {
-      if (userRole === "user") {
-        const today = new Date().toISOString().split("T")[0];
-        if (entry.date !== today) return false;
+      if (userRole !== "master") {
+        const today = new Date();
+        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        if (entry.date !== localToday) return false;
       }
       const matchesSearch = (entry.responsible && entry.responsible.toLowerCase().includes(searchTerm.toLowerCase())) || 
                            entry.date.includes(searchTerm) ||
@@ -3397,11 +3399,16 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bottom Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200/60 px-4 py-3 z-50 print:hidden">
-        <div className="max-w-md mx-auto flex justify-between items-center overflow-x-auto no-scrollbar gap-6">
+      <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-200/60 z-50 print:hidden">
+        <div className="relative">
+          {/* Visual hints for scrolling */}
+          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white/90 to-transparent z-10 pointer-events-none md:hidden" />
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/90 to-transparent z-10 pointer-events-none md:hidden" />
+          
+          <div className="flex items-center justify-start md:justify-center overflow-x-auto no-scrollbar gap-8 px-8 py-3 snap-x touch-pan-x">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
               activeTab === "dashboard" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3411,7 +3418,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("calculator")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
               activeTab === "calculator" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3421,7 +3428,7 @@ export default function App() {
           
           <button
             onClick={() => setActiveTab("form")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
               activeTab === "form" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3432,7 +3439,7 @@ export default function App() {
           {(userRole === "master" || userRole === "junior") && (
             <button
               onClick={() => setActiveTab("history")}
-              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
                 activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
               }`}
             >
@@ -3443,7 +3450,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("attendance")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
               activeTab === "attendance" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3453,7 +3460,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab("settings")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 ${
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
               activeTab === "settings" ? "text-indigo-600 scale-110" : "text-slate-400"
             }`}
           >
@@ -3462,6 +3469,7 @@ export default function App() {
           </button>
         </div>
       </div>
+    </div>
 
       {/* Padding for bottom nav */}
       <div className="h-20" />
@@ -3817,41 +3825,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-      {/* Bottom Navigation for Mobile */}
-      <div className="fixed bottom-0 left-0 right-0 z-[200] md:hidden bg-white/80 backdrop-blur-lg border-t border-slate-200 px-6 py-3 pb-8 flex items-center justify-between">
-        <motion.button 
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setActiveTab("dashboard")}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "dashboard" ? "text-indigo-600" : "text-slate-400"}`}
-        >
-          <LayoutDashboard className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Início</span>
-        </motion.button>
-        <motion.button 
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setActiveTab("form")}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "form" ? "text-indigo-600" : "text-slate-400"}`}
-        >
-          <PlusCircle className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Novo</span>
-        </motion.button>
-        <motion.button 
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setActiveTab("calculator")}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "calculator" ? "text-indigo-600" : "text-slate-400"}`}
-        >
-          <Calculator className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Caixa</span>
-        </motion.button>
-        <motion.button 
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setActiveTab("history")}
-          className={`flex flex-col items-center gap-1 transition-all ${activeTab === "history" ? "text-indigo-600" : "text-slate-400"}`}
-        >
-          <History className="w-6 h-6" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Histórico</span>
-        </motion.button>
-      </div>
     </div>
   );
 }

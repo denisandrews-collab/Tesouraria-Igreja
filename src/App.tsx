@@ -44,7 +44,8 @@ import {
   MapPin,
   Minus,
   Plus,
-  RefreshCw
+  RefreshCw,
+  Clock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
@@ -161,6 +162,7 @@ export default function App() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
   const [historyTab, setHistoryTab] = useState<"finance" | "attendance">("finance");
+  const [attendancePeriodFilter, setAttendancePeriodFilter] = useState<"Todos" | "Manhã" | "Tarde" | "Noite">("Todos");
   const [showValues, setShowValues] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
@@ -260,8 +262,50 @@ export default function App() {
       ? (currentMonthTotal > 0 ? 100 : 0) 
       : ((currentMonthTotal - prevMonthTotal) / prevMonthTotal) * 100;
 
-    return { total, dizimos, ofertas, chartData, pieData, uniqueTreasurers, growth, currentMonthTotal };
-  }, [entries]);
+    // Attendance Chart Data
+    const attendanceByDate = attendanceEntries.reduce((acc: Record<string, any>, curr) => {
+      const [year, month, day] = curr.date.split("-");
+      const dateLabel = `${day}/${month}`;
+      
+      if (!acc[dateLabel]) acc[dateLabel] = { name: dateLabel, total: 0 };
+      
+      const counts = typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts;
+      const entryTotal = Object.values(counts).reduce((sum: number, c: any) => {
+        const count = c as { men?: number; women?: number; children?: number };
+        return sum + (count.men || 0) + (count.women || 0) + (count.children || 0);
+      }, 0);
+      
+      acc[dateLabel].total += entryTotal;
+      return acc;
+    }, {});
+
+    const attendanceChartData = Object.values(attendanceByDate).reverse().slice(-7);
+
+    // Attendance Stats
+    const totalAttendanceToday = attendanceEntries
+      .filter(e => e.date === new Date().toISOString().split("T")[0])
+      .reduce((acc: number, curr) => {
+        const counts = (typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts) as Record<string, any>;
+        const entryTotal = Object.values(counts).reduce((sum: number, c: any) => {
+          const count = c as { men?: number; women?: number; children?: number };
+          return sum + (Number(count.men) || 0) + (Number(count.women) || 0) + (Number(count.children) || 0);
+        }, 0);
+        return acc + entryTotal;
+      }, 0);
+
+    return { 
+      total, 
+      dizimos, 
+      ofertas, 
+      chartData, 
+      pieData, 
+      uniqueTreasurers, 
+      growth, 
+      currentMonthTotal,
+      attendanceChartData,
+      totalAttendanceToday
+    };
+  }, [entries, attendanceEntries]);
 
   const filteredEntries = useMemo(() => {
     const now = new Date();
@@ -324,9 +368,11 @@ export default function App() {
       const matchesDateRange = (!dateRange.start || entry.date >= dateRange.start) &&
                                (!dateRange.end || entry.date <= dateRange.end);
 
-      return matchesSearch && matchesPeriod && matchesDateRange;
+      const matchesAttendancePeriod = attendancePeriodFilter === "Todos" || entry.period === attendancePeriodFilter;
+
+      return matchesSearch && matchesPeriod && matchesDateRange && matchesAttendancePeriod;
     });
-  }, [attendanceEntries, searchTerm, dateRange, periodFilter]);
+  }, [attendanceEntries, searchTerm, dateRange, periodFilter, attendancePeriodFilter]);
 
   useEffect(() => {
     fetchEntries().catch(err => console.error("Initial fetch failed:", err));
@@ -1181,33 +1227,39 @@ export default function App() {
               {firebaseStatus === "error" && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
                   <AlertTriangle className="w-2.5 h-2.5" />
-                  Nuvem Offline (Banco não criado)
+                  Nuvem Offline
                 </div>
               )}
               {firebaseStatus === "online" && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
                   <CheckCircle2 className="w-2.5 h-2.5" />
-                  Nuvem Conectada
-                </div>
-              )}
-              {wsConnected && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
-                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
-                  Tempo Real Ativo
+                  Conectado
                 </div>
               )}
             </div>
-            <p className="text-xs md:text-sm text-slate-500 font-medium ml-10 md:ml-13">Gestão Financeira Eclesiástica</p>
+            <div className="flex items-center gap-2 ml-10 md:ml-13">
+              <p className="text-xs md:text-sm text-slate-500 font-medium">Gestão Financeira Eclesiástica</p>
+              <div className="w-1 h-1 bg-slate-300 rounded-full" />
+              <p className="text-xs md:text-sm text-slate-400 font-medium">
+                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+            </div>
           </div>
-          {(userRole === "master" || userRole === "junior") && (
-            <button
-              onClick={() => setShowValues(!showValues)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
-            >
-              {showValues ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              <span className="text-[10px] font-bold uppercase tracking-widest">{showValues ? "Ocultar" : "Mostrar"} Valores</span>
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {(userRole === "master" || userRole === "junior") && (
+              <button
+                onClick={() => setShowValues(!showValues)}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+              >
+                {showValues ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <span className="text-[10px] font-bold uppercase tracking-widest">{showValues ? "Ocultar" : "Mostrar"}</span>
+              </button>
+            )}
+            <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl text-slate-500">
+              <Clock className="w-4 h-4" />
+              <span className="text-[10px] font-bold tabular-nums">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          </div>
         </header>
 
         {/* Summary Stats - Bento Grid Style */}
@@ -1338,12 +1390,18 @@ export default function App() {
             >
               {userRole === "master" || userRole === "junior" ? (
                 <>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1">
                     {/* Trend Chart */}
-                    <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 print:shadow-none print:border-slate-200 print:rounded-xl">
-                      <div className="flex items-center gap-2 mb-6">
-                        <BarChart3 className="w-5 h-5 text-indigo-600" />
-                        <h3 className="font-bold text-slate-900">Tendência de Arrecadação</h3>
+                    <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 print:shadow-none print:border-slate-200 print:rounded-xl">
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2">
+                          <BarChart3 className="w-5 h-5 text-indigo-600" />
+                          <h3 className="font-bold text-slate-900">Tendência de Arrecadação</h3>
+                        </div>
+                        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 rounded-lg">
+                          <div className="w-2 h-2 bg-indigo-600 rounded-full" />
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Diário</span>
+                        </div>
                       </div>
                       <div className="h-[300px] w-full print:h-[200px] relative">
                         {stats.chartData.length > 0 && isDashboardReady ? (
@@ -1371,6 +1429,7 @@ export default function App() {
                               <Tooltip 
                                 contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                                 itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                                formatter={(value: any) => [`R$ ${value.toLocaleString('pt-BR')}`, 'Total']}
                               />
                               <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorTotal)" />
                             </AreaChart>
@@ -1383,6 +1442,62 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Quick Stats - Attendance */}
+                    <div className="space-y-6">
+                      <div className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-900">Pessoas Hoje</h3>
+                        </div>
+                        <div className="flex items-end justify-between">
+                          <p className="text-3xl font-bold text-slate-900 tabular-nums">
+                            {stats.totalAttendanceToday}
+                          </p>
+                          <div className="text-right">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Média Semanal</p>
+                            <p className="text-xs font-bold text-slate-600">
+                              {Math.round(stats.attendanceChartData.reduce((acc: number, curr: any) => acc + curr.total, 0) / (stats.attendanceChartData.length || 1))}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Attendance Chart */}
+                      <div className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <TrendingUp className="w-4 h-4 text-emerald-600" />
+                          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Frequência</h3>
+                        </div>
+                        <div className="h-[140px] w-full">
+                          {stats.attendanceChartData.length > 0 && isDashboardReady ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={stats.attendanceChartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis 
+                                  dataKey="name" 
+                                  axisLine={false} 
+                                  tickLine={false} 
+                                  tick={{ fontSize: 8, fontWeight: 600, fill: '#94a3b8' }} 
+                                />
+                                <Tooltip 
+                                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px' }}
+                                />
+                                <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300 text-[10px] font-bold uppercase tracking-widest">
+                              Sem dados
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-1">
                     {/* Distribution Chart */}
                     <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60 print:shadow-none print:border-slate-200 print:rounded-xl">
                       <div className="flex items-center justify-between mb-6">
@@ -1419,6 +1534,7 @@ export default function App() {
                                 </Pie>
                                 <Tooltip 
                                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                  formatter={(value: any) => [`R$ ${value.toLocaleString('pt-BR')}`, 'Valor']}
                                 />
                               </PieChart>
                             </ResponsiveContainer>
@@ -1438,50 +1554,50 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Quick Actions */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
-                    <motion.button 
-                      onClick={() => setActiveTab("calculator")}
-                      whileTap={{ scale: 0.95 }}
-                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-center"
-                    >
-                      <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                        <Calculator className="w-5 h-5 text-indigo-600" />
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Calculadora</p>
-                    </motion.button>
-                    <motion.button 
-                      onClick={() => setActiveTab("form")}
-                      whileTap={{ scale: 0.95 }}
-                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-emerald-200 transition-all group text-center"
-                    >
-                      <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                        <PlusCircle className="w-5 h-5 text-emerald-600" />
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Novo Registro</p>
-                    </motion.button>
-                    <motion.button 
-                      onClick={() => setActiveTab("attendance")}
-                      whileTap={{ scale: 0.95 }}
-                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-center"
-                    >
-                      <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                        <Users className="w-5 h-5 text-amber-600" />
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Pessoas</p>
-                    </motion.button>
-                    <motion.button 
-                      onClick={generateInsights}
-                      whileTap={{ scale: 0.95 }}
-                      className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-violet-200 transition-all group text-center"
-                    >
-                      <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                        <Sparkles className="w-5 h-5 text-violet-600" />
-                      </div>
-                      <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">IA Insights</p>
-                    </motion.button>
+                    {/* Quick Actions */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
+                      <motion.button 
+                        onClick={() => setActiveTab("calculator")}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-center"
+                      >
+                        <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                          <Calculator className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Calculadora</p>
+                      </motion.button>
+                      <motion.button 
+                        onClick={() => setActiveTab("form")}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-emerald-200 transition-all group text-center"
+                      >
+                        <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                          <PlusCircle className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Novo Registro</p>
+                      </motion.button>
+                      <motion.button 
+                        onClick={() => setActiveTab("attendance")}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-amber-200 transition-all group text-center"
+                      >
+                        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                          <Users className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Pessoas</p>
+                      </motion.button>
+                      <motion.button 
+                        onClick={generateInsights}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-violet-200 transition-all group text-center"
+                      >
+                        <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
+                          <Sparkles className="w-5 h-5 text-violet-600" />
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">IA Insights</p>
+                      </motion.button>
+                    </div>
                   </div>
 
                   {/* Recent Activity Mini List */}
@@ -2215,6 +2331,115 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="space-y-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden">
+                      <div className="relative md:col-span-2">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por responsável, data ou notas..."
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                      </div>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="date"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={dateRange.start}
+                          onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        />
+                      </div>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="date"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={dateRange.end}
+                          onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 print:hidden">
+                      <div className="flex flex-wrap gap-2">
+                        {(["Todos", "Manhã", "Tarde", "Noite"] as const).map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setAttendancePeriodFilter(p)}
+                            className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                              attendancePeriodFilter === p 
+                                ? "bg-indigo-600 text-white shadow-sm" 
+                                : "bg-slate-50 text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="w-px h-6 bg-slate-200 hidden md:block" />
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: "all", label: "Tudo" },
+                          { id: "currentMonth", label: "Mês Atual" },
+                          { id: "prevMonth", label: "Mês Anterior" },
+                          { id: "currentYear", label: "Ano Atual" }
+                        ].map((period) => (
+                          <button
+                            key={period.id}
+                            onClick={() => setPeriodFilter(period.id as any)}
+                            className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                              periodFilter === period.id 
+                                ? "bg-slate-800 text-white shadow-sm" 
+                                : "bg-slate-50 text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {period.label}
+                          </button>
+                        ))}
+                      </div>
+                      {(attendancePeriodFilter !== "Todos" || periodFilter !== "all" || dateRange.start || dateRange.end || searchTerm) && (
+                        <button
+                          onClick={() => {
+                            setAttendancePeriodFilter("Todos");
+                            setPeriodFilter("all");
+                            setDateRange({ start: "", end: "" });
+                            setSearchTerm("");
+                          }}
+                          className="px-3 py-1.5 text-[10px] font-bold text-rose-600 uppercase tracking-widest hover:bg-rose-50 rounded-lg transition-all flex items-center gap-1"
+                        >
+                          <X className="w-3 h-3" />
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+
+                    {filteredAttendanceEntries.length > 0 && (
+                      <div className="flex items-center gap-4 px-4 py-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Total de Pessoas</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">
+                            {filteredAttendanceEntries.reduce((acc, curr) => {
+                              const counts = typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts;
+                              const entryTotal = Object.values(counts).reduce<number>((sum, c: any) => {
+                                const count = c as { men?: number; women?: number; children?: number };
+                                return sum + (count.men || 0) + (count.women || 0) + (count.children || 0);
+                              }, 0);
+                              return acc + entryTotal;
+                            }, 0)}
+                          </p>
+                        </div>
+                        <div className="w-px h-8 bg-indigo-200/50" />
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Contagens</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">{filteredAttendanceEntries.length}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="overflow-x-auto -mx-6 md:-mx-8">
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -2636,6 +2861,22 @@ export default function App() {
 
                     <div className="flex flex-wrap items-center gap-4 print:hidden">
                       <div className="flex flex-wrap gap-2">
+                        {(["Todos", "Manhã", "Tarde", "Noite"] as const).map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setAttendancePeriodFilter(p)}
+                            className={`px-3 md:px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                              attendancePeriodFilter === p 
+                                ? "bg-indigo-600 text-white shadow-sm" 
+                                : "bg-slate-50 text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="w-px h-6 bg-slate-200 hidden md:block" />
+                      <div className="flex flex-wrap gap-2">
                         {[
                           { id: "all", label: "Tudo" },
                           { id: "currentMonth", label: "Mês Atual" },
@@ -2655,9 +2896,10 @@ export default function App() {
                           </button>
                         ))}
                       </div>
-                      {(periodFilter !== "all" || dateRange.start || dateRange.end || searchTerm) && (
+                      {(attendancePeriodFilter !== "Todos" || periodFilter !== "all" || dateRange.start || dateRange.end || searchTerm) && (
                         <button
                           onClick={() => {
+                            setAttendancePeriodFilter("Todos");
                             setPeriodFilter("all");
                             setDateRange({ start: "", end: "" });
                             setSearchTerm("");
@@ -2669,6 +2911,29 @@ export default function App() {
                         </button>
                       )}
                     </div>
+
+                    {filteredAttendanceEntries.length > 0 && (
+                      <div className="flex items-center gap-4 px-4 py-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Total de Pessoas</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">
+                            {filteredAttendanceEntries.reduce((acc, curr) => {
+                              const counts = typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts;
+                              const entryTotal = Object.values(counts).reduce<number>((sum, c: any) => {
+                                const count = c as { men?: number; women?: number; children?: number };
+                                return sum + (count.men || 0) + (count.women || 0) + (count.children || 0);
+                              }, 0);
+                              return acc + entryTotal;
+                            }, 0)}
+                          </p>
+                        </div>
+                        <div className="w-px h-8 bg-indigo-200/50" />
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Contagens</p>
+                          <p className="text-lg font-bold text-indigo-900 tabular-nums">{filteredAttendanceEntries.length}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="overflow-x-auto -mx-6 md:-mx-8">

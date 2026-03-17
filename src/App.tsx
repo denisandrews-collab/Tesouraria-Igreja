@@ -357,11 +357,17 @@ export default function App() {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
+    const todayStr = now.toISOString().split('T')[0];
     
     const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return attendanceEntries.filter(entry => {
+      // Restrição para usuários não-master: apenas histórico do dia atual
+      if (userRole !== "master" && entry.date !== todayStr) {
+        return false;
+      }
+
       const matchesSearch = (entry.responsible && entry.responsible.toLowerCase().includes(searchTerm.toLowerCase())) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -385,7 +391,7 @@ export default function App() {
 
       return matchesSearch && matchesPeriod && matchesDateRange && matchesAttendancePeriod;
     });
-  }, [attendanceEntries, searchTerm, dateRange, periodFilter, attendancePeriodFilter]);
+  }, [attendanceEntries, searchTerm, dateRange, periodFilter, attendancePeriodFilter, userRole]);
 
   useEffect(() => {
     fetchEntries().catch(err => console.error("Initial fetch failed:", err));

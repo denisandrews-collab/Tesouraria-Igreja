@@ -316,11 +316,6 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return entries.filter(entry => {
-      if (userRole !== "master") {
-        const today = new Date();
-        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        if (entry.date !== localToday) return false;
-      }
       const matchesSearch = entry.treasurer.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -354,11 +349,6 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return attendanceEntries.filter(entry => {
-      if (userRole !== "master") {
-        const today = new Date();
-        const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        if (entry.date !== localToday) return false;
-      }
       const matchesSearch = (entry.responsible && entry.responsible.toLowerCase().includes(searchTerm.toLowerCase())) || 
                            entry.date.includes(searchTerm) ||
                            (entry.notes && entry.notes.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -3436,17 +3426,15 @@ export default function App() {
             <span className="text-[10px] font-bold uppercase tracking-tighter">Registro</span>
           </button>
           
-          {(userRole === "master" || userRole === "junior") && (
-            <button
-              onClick={() => setActiveTab("history")}
-              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-                activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
-              }`}
-            >
-              <History className={`w-6 h-6 ${activeTab === "history" ? "fill-indigo-50" : ""}`} />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+              activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
+            }`}
+          >
+            <History className={`w-6 h-6 ${activeTab === "history" ? "fill-indigo-50" : ""}`} />
+            <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
+          </button>
 
           <button
             onClick={() => setActiveTab("attendance")}
@@ -3472,7 +3460,7 @@ export default function App() {
     </div>
 
       {/* Padding for bottom nav */}
-      <div className="h-20" />
+      <div className="h-24 md:hidden" />
 
       {/* Notifications */}
       <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">

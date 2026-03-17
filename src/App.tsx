@@ -492,10 +492,23 @@ export default function App() {
             ...doc.data() 
           })) as Location[];
 
-          // If locations are empty, return null to fallback to API which handles defaults
-          if (locationsData.length === 0) return null;
+          // If entries and attendance are empty, return null to fallback to API
+          // We don't check locationsData here because it might be seeded but have no real data
+          if (attendanceData.length === 0 && entriesData.length === 0) {
+            console.warn("Firestore entries and attendance are empty, will attempt API fallback.");
+            return null;
+          }
 
-          return { entriesData, attendanceData, locationsData };
+          // If locations are empty but we have other data, seed a default location in Firestore
+          // so the user can continue using the app without manual setup
+          let finalLocations = locationsData;
+          if (locationsData.length === 0) {
+            const defaultLoc = { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() };
+            addDoc(collection(db, "locations"), defaultLoc).catch(err => console.error("Error seeding default location:", err));
+            finalLocations = [{ id: 'temp-default', ...defaultLoc }];
+          }
+
+          return { entriesData, attendanceData, locationsData: finalLocations };
         } catch (e: any) {
           console.error("Firestore error details:", e);
           if (e.message?.includes("Database '(default)' not found")) {
@@ -517,19 +530,28 @@ export default function App() {
       try {
         const result = await Promise.race([fetchFromFirestore(), timeoutPromise]) as any;
         if (result) {
-          setEntries(Array.from(new Map(result.entriesData.map((e: Entry) => [e.id, e])).values()) as Entry[]);
+          console.log("Using Firestore data for state update");
+          const uniqueEntries = Array.from(new Map(result.entriesData.map((e: Entry) => [e.id, e])).values()) as Entry[];
+          setEntries(uniqueEntries);
+          
           const sortedAttendance = (result.attendanceData || []).sort((a: Attendance, b: Attendance) => {
             if (a.date !== b.date) return b.date.localeCompare(a.date);
             const periodOrder: Record<string, number> = { "Noite": 3, "Tarde": 2, "Manhã": 1 };
             return (periodOrder[b.period] || 0) - (periodOrder[a.period] || 0);
           });
-          setAttendanceEntries(Array.from(new Map(sortedAttendance.map((a: Attendance) => [a.id, a])).values()) as Attendance[]);
-          setLocations(Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[]);
+          const uniqueAttendance = Array.from(new Map(sortedAttendance.map((a: Attendance) => [a.id, a])).values()) as Attendance[];
+          setAttendanceEntries(uniqueAttendance);
+          
+          const uniqueLocations = Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[];
+          setLocations(uniqueLocations);
+          
           setLoading(false);
           return;
+        } else {
+          console.warn("Firestore returned null (empty), falling back to API");
         }
       } catch (fsError) {
-        console.error("Firestore fetch failed, falling back to local:", fsError);
+        console.error("Firestore fetch failed or timed out, falling back to local:", fsError);
       }
 
       const response = await fetch(`/api/entries?t=${Date.now()}`, {
@@ -553,6 +575,7 @@ export default function App() {
       });
       if (attResponse.ok) {
         const data = await attResponse.json();
+        console.log(`Fetched from API: ${data.length} attendance entries`);
         if (Array.isArray(data)) {
           const sortedAttendance = data.sort((a: Attendance, b: Attendance) => {
             if (a.date !== b.date) return b.date.localeCompare(a.date);
@@ -1546,7 +1569,15 @@ export default function App() {
                         </div>
                       ) : (
                         attendanceEntries.slice(0, 3).map((att) => {
-                          const total = Object.values(att.counts || {}).reduce((acc, curr) => {
+                          const rawCounts = att.counts || {};
+                          let countsObj: Record<string, any> = {};
+                          try {
+                            countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                          } catch (e) {
+                            console.error("Error parsing counts:", e);
+                          }
+                          
+                          const total = Object.values(countsObj).reduce((acc: number, curr: any) => {
                             const c = curr as { men: number; women: number; children: number };
                             return acc + (c.men || 0) + (c.women || 0) + (c.children || 0);
                           }, 0);
@@ -2206,7 +2237,15 @@ export default function App() {
                               const [date, period] = key.split("_");
                               const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
                               entries.forEach(entry => {
-                                Object.entries(entry.counts || {}).forEach(([locName, counts]) => {
+                                const rawCounts = entry.counts || {};
+                                let countsObj: Record<string, any> = {};
+                                try {
+                                  countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                                } catch (e) {
+                                  console.error("Error parsing counts:", e);
+                                }
+                                
+                                Object.entries(countsObj).forEach(([locName, counts]) => {
                                   if (!groupTotals[locName]) groupTotals[locName] = { men: 0, women: 0, children: 0 };
                                   const c = counts as { men: number; women: number; children: number };
                                   groupTotals[locName].men += c.men || 0;
@@ -2603,12 +2642,15 @@ export default function App() {
                             // Calculate totals for this group
                             const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
                             entries.forEach(entry => {
-                              Object.entries(entry.counts || {}).forEach(([locName, counts]) => {
+                              const rawCounts = entry.counts || {};
+                              const countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                              
+                              Object.entries(countsObj).forEach(([locName, counts]) => {
                                 const c = counts as { men: number; women: number; children: number };
                                 if (!groupTotals[locName]) groupTotals[locName] = { men: 0, women: 0, children: 0 };
-                                groupTotals[locName].men += c.men;
-                                groupTotals[locName].women += c.women;
-                                groupTotals[locName].children += c.children;
+                                groupTotals[locName].men += c.men || 0;
+                                groupTotals[locName].women += c.women || 0;
+                                groupTotals[locName].children += c.children || 0;
                               });
                             });
 
@@ -2649,9 +2691,17 @@ export default function App() {
 
                                 {/* Individual Entries */}
                                 {entries.map((att) => {
-                                  const entryTotal = Object.values(att.counts || {}).reduce((acc, curr) => {
+                                  const rawCounts = att.counts || {};
+                                  let countsObj: Record<string, any> = {};
+                                  try {
+                                    countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                                  } catch (e) {
+                                    console.error("Error parsing counts:", e);
+                                  }
+                                  
+                                  const entryTotal = Object.values(countsObj).reduce((acc: number, curr: any) => {
                                     const c = curr as { men: number; women: number; children: number };
-                                    return acc + c.men + c.women + c.children;
+                                    return acc + (c.men || 0) + (c.women || 0) + (c.children || 0);
                                   }, 0);
 
                                   return (
@@ -2673,12 +2723,12 @@ export default function App() {
                                       </td>
                                       <td className="px-6 py-4">
                                         <div className="space-y-3">
-                                          {Object.entries(att.counts || {}).map(([locName, counts]) => {
+                                          {Object.entries(countsObj).map(([locName, counts]) => {
                                             const c = counts as { men: number; women: number; children: number };
                                             return (
                                               <div key={locName} className="flex flex-col gap-0.5">
-                                                <span className="text-xs font-bold text-slate-700">{locName}: {c.men + c.women + c.children}</span>
-                                                <span className="text-[9px] text-slate-400 uppercase tracking-tighter">H:{c.men} M:{c.women} C:{c.children}</span>
+                                                <span className="text-xs font-bold text-slate-700">{locName}: {(c.men || 0) + (c.women || 0) + (c.children || 0)}</span>
+                                                <span className="text-[9px] text-slate-400 uppercase tracking-tighter">H:{c.men || 0} M:{c.women || 0} C:{c.children || 0}</span>
                                               </div>
                                             );
                                           })}

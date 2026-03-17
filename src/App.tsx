@@ -147,7 +147,9 @@ export default function App() {
   const [showDeleteLocationConfirm, setShowDeleteLocationConfirm] = useState<string | number | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [attendanceEntries, setAttendanceEntries] = useState<Attendance[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [locations, setLocations] = useState<Location[]>([
+    { id: 'initial-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }
+  ]);
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -467,9 +469,9 @@ export default function App() {
         setServerFirebaseEnabled(isServerFirebase);
       }
 
-      // Try Firestore with timeout if db is available and server says it's enabled
+      // Try Firestore with timeout if db is available
       const fetchFromFirestore = async () => {
-        if (!db || !isFirebaseEnabled || !isServerFirebase) return null;
+        if (!db || !isFirebaseEnabled) return null;
         try {
           const querySnapshot = await getDocs(collection(db, "entries"));
           const querySnapshotAtt = await getDocs(collection(db, "attendance"));
@@ -481,37 +483,32 @@ export default function App() {
             id: doc.id, 
             ...doc.data() 
           })) as Entry[];
-          // Sort in memory
           entriesData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
 
           const attendanceData = querySnapshotAtt.empty ? [] : querySnapshotAtt.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data() 
           })) as Attendance[];
-          // Sort in memory
           attendanceData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
 
           const locationsData = querySnapshotLoc.empty ? [] : querySnapshotLoc.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data() 
           })) as Location[];
-          // Sort in memory
           locationsData.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
 
-          // If entries and attendance are empty, return null to fallback to API
-          // We don't check locationsData here because it might be seeded but have no real data
-          if (attendanceData.length === 0 && entriesData.length === 0) {
-            console.warn("Firestore entries and attendance are empty, will attempt API fallback.");
-            return null;
-          }
-
-          // If locations are empty but we have other data, seed a default location in Firestore
-          // so the user can continue using the app without manual setup
+          // If locations are empty, seed a default location in Firestore
           let finalLocations = locationsData;
           if (locationsData.length === 0) {
+            console.log("Seeding default location to Firestore...");
             const defaultLoc = { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() };
-            addDoc(collection(db, "locations"), defaultLoc).catch(err => console.error("Error seeding default location:", err));
-            finalLocations = [{ id: 'temp-default', ...defaultLoc }];
+            try {
+              const docRef = await addDoc(collection(db, "locations"), defaultLoc);
+              finalLocations = [{ id: docRef.id, ...defaultLoc }];
+            } catch (err) {
+              console.error("Error seeding default location:", err);
+              finalLocations = [{ id: 'temp-default', ...defaultLoc }];
+            }
           }
 
           return { entriesData, attendanceData, locationsData: finalLocations };
@@ -597,12 +594,20 @@ export default function App() {
       });
       if (locResponse.ok) {
         const data = await locResponse.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setLocations(Array.from(new Map(data.map((l: Location) => [l.id, l])).values()) as Location[]);
+        } else if (locations.length === 0) {
+          // Final fallback: if still no locations, set a default one locally
+          setLocations([{ id: 'local-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
         }
+      } else if (locations.length === 0) {
+        setLocations([{ id: 'local-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
       }
     } catch (error: any) {
       console.error("Error fetching data:", error);
+      if (locations.length === 0) {
+        setLocations([{ id: 'error-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
+      }
       const isVercel = window.location.hostname.includes("vercel.app");
       const message = isVercel && !serverFirebaseEnabled 
         ? "Erro de conexão. No Vercel, o Firebase precisa estar configurado."
@@ -610,6 +615,13 @@ export default function App() {
       addNotification("error", message, "Erro de Conexão");
     } finally {
       setLoading(false);
+      // Final safety check: ensure we have at least one location
+      setLocations(prev => {
+        if (prev.length === 0) {
+          return [{ id: 'final-fallback', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }];
+        }
+        return prev;
+      });
     }
   };
 

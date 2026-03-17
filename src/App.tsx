@@ -136,6 +136,16 @@ const DENOMINATIONS = [
   { label: "R$ 0,01", value: 0.01, type: "coin" },
 ];
 
+const evaluateMath = (str: string): number => {
+  const sanitized = str.replace(/[^0-9+\-]/g, '');
+  if (!sanitized) return 0;
+  return sanitized
+    .replace(/-/g, '+-')
+    .split('+')
+    .filter(part => part !== "")
+    .reduce((acc, part) => acc + (parseInt(part) || 0), 0);
+};
+
 export default function App() {
   const APP_VERSION = "1.1.0-fix-sync";
   const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance">("dashboard");
@@ -203,7 +213,7 @@ export default function App() {
 
   const calculatorTotal = useMemo(() => {
     return Object.entries(counts).reduce((acc, [val, count]) => {
-      const n = parseInt(count as string) || 0;
+      const n = evaluateMath(count as string);
       return acc + (parseFloat(val) * n);
     }, 0);
   }, [counts]);
@@ -1831,8 +1841,7 @@ export default function App() {
                         {den.type === "note" ? <DollarSign className="w-3 h-3 text-slate-300" /> : <Coins className="w-3 h-3 text-slate-300" />}
                       </div>
                       <input
-                        type="number"
-                        min="0"
+                        type="text"
                         inputMode="numeric"
                         placeholder="0"
                         className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-slate-50 border border-slate-200 rounded-xl md:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-semibold text-slate-700 group-hover:bg-white"
@@ -1842,7 +1851,19 @@ export default function App() {
                           setTimeout(() => e.target.select(), 50);
                         }}
                         onClick={(e) => (e.target as HTMLInputElement).select()}
-                        onChange={(e) => setCounts({ ...counts, [den.value]: e.target.value })}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (/^[0-9+\-]*$/.test(val)) {
+                            setCounts({ ...counts, [den.value]: val });
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const val = e.target.value;
+                          if (val.includes('+') || val.includes('-')) {
+                            const evaluated = evaluateMath(val);
+                            setCounts({ ...counts, [den.value]: evaluated === 0 ? "" : evaluated.toString() });
+                          }
+                        }}
                       />
                     </div>
                   ))}
@@ -2726,8 +2747,8 @@ export default function App() {
                                     onClick={(e) => (e.target as HTMLInputElement).select()}
                                     onChange={(e) => {
                                       const val = e.target.value;
-                                      // Only allow digits and plus sign
-                                      if (/^[0-9+]*$/.test(val)) {
+                                      // Only allow digits, plus and minus signs
+                                      if (/^[0-9+\-]*$/.test(val)) {
                                         setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: val }));
                                         
                                         // If it's just a number, update the main form too so totals update
@@ -2750,8 +2771,8 @@ export default function App() {
                                       const val = e.target.value;
                                       if (!val) return;
                                       
-                                      // Evaluate expression (only additions)
-                                      const evaluated = val.split('+').reduce((acc, part) => acc + (parseInt(part.trim()) || 0), 0);
+                                      // Evaluate expression (additions and subtractions)
+                                      const evaluated = evaluateMath(val);
                                       
                                       setAttendanceForm(prev => ({
                                         ...prev,

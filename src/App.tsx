@@ -471,14 +471,9 @@ export default function App() {
       const fetchFromFirestore = async () => {
         if (!db || !isFirebaseEnabled || !isServerFirebase) return null;
         try {
-          const q = query(collection(db, "entries"), orderBy("created_at", "desc"));
-          const querySnapshot = await getDocs(q);
-
-          const qAtt = query(collection(db, "attendance"), orderBy("created_at", "desc"));
-          const querySnapshotAtt = await getDocs(qAtt);
-
-          const qLoc = query(collection(db, "locations"), orderBy("created_at", "asc"));
-          const querySnapshotLoc = await getDocs(qLoc);
+          const querySnapshot = await getDocs(collection(db, "entries"));
+          const querySnapshotAtt = await getDocs(collection(db, "attendance"));
+          const querySnapshotLoc = await getDocs(collection(db, "locations"));
 
           setFirebaseStatus("online");
           
@@ -486,16 +481,22 @@ export default function App() {
             id: doc.id, 
             ...doc.data() 
           })) as Entry[];
+          // Sort in memory
+          entriesData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
 
           const attendanceData = querySnapshotAtt.empty ? [] : querySnapshotAtt.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data() 
           })) as Attendance[];
+          // Sort in memory
+          attendanceData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
 
           const locationsData = querySnapshotLoc.empty ? [] : querySnapshotLoc.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data() 
           })) as Location[];
+          // Sort in memory
+          locationsData.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
 
           // If entries and attendance are empty, return null to fallback to API
           // We don't check locationsData here because it might be seeded but have no real data

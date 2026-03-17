@@ -177,8 +177,10 @@ async function startServer() {
     try {
       if (firestore) {
         try {
-          const snapshot = await withTimeout(firestore.collection("entries").orderBy("created_at", "desc").get());
+          const snapshot = await withTimeout(firestore.collection("entries").get());
           const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Sort in memory
+          entries.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
           return res.json(entries);
         } catch (fsError) {
           console.error("Firestore fetch entries failed, falling back to SQLite:", fsError);
@@ -288,8 +290,10 @@ async function startServer() {
     try {
       if (firestore) {
         try {
-          const snapshot = await withTimeout(firestore.collection("attendance").orderBy("created_at", "desc").get());
+          const snapshot = await withTimeout(firestore.collection("attendance").get());
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Sort in memory
+          data.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
           return res.json(data);
         } catch (fsError) {
           console.error("Firestore fetch attendance failed, falling back to SQLite:", fsError);
@@ -365,8 +369,11 @@ async function startServer() {
     try {
       if (firestore) {
         try {
-          const snapshot = await withTimeout(firestore.collection("locations").orderBy("created_at", "asc").get());
+          const snapshot = await withTimeout(firestore.collection("locations").get());
           let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Sort in memory
+          data.sort((a: any, b: any) => (a.created_at || "").localeCompare(b.created_at || ""));
+          
           if (data.length === 0) {
             // Initialize defaults in firestore if empty
             const defaults = [

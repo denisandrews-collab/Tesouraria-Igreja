@@ -1837,6 +1837,11 @@ export default function App() {
                         placeholder="0"
                         className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-slate-50 border border-slate-200 rounded-xl md:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-semibold text-slate-700 group-hover:bg-white"
                         value={counts[den.value] || ""}
+                        onFocus={(e) => {
+                          e.target.select();
+                          setTimeout(() => e.target.select(), 50);
+                        }}
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
                         onChange={(e) => setCounts({ ...counts, [den.value]: e.target.value })}
                       />
                     </div>
@@ -2013,6 +2018,11 @@ export default function App() {
                         placeholder="0,00"
                         className="w-full pl-11 pr-4 py-3.5 md:py-4 bg-slate-50 border border-slate-200 rounded-xl md:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-lg md:text-xl font-bold text-slate-900"
                         value={formData.amount}
+                        onFocus={(e) => {
+                          e.target.select();
+                          setTimeout(() => e.target.select(), 50);
+                        }}
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
                         onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                       />
                     </div>
@@ -2705,10 +2715,15 @@ export default function App() {
                                   </button>
                                   <input
                                     type="text"
-                                    inputMode="text"
+                                    inputMode="numeric"
                                     placeholder="0"
                                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-bold text-slate-700 text-center"
-                                    value={attendanceTempInputs[`${loc.name}_${cat.id}`] ?? attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] ?? ""}
+                                    value={attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] === 0 ? "" : attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] ?? "")}
+                                    onFocus={(e) => {
+                                      e.target.select();
+                                      setTimeout(() => e.target.select(), 50);
+                                    }}
+                                    onClick={(e) => (e.target as HTMLInputElement).select()}
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       // Only allow digits and plus sign

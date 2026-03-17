@@ -436,7 +436,7 @@ export default function App() {
         if (wsConnectedRef.current) {
           console.warn("WebSocket error:", err);
         }
-        if (socket && socket.readyState === WebSocket.OPEN) {
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
           try {
             socket.close();
           } catch (e) {
@@ -583,7 +583,7 @@ export default function App() {
       };
 
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout")), 5000)
+        setTimeout(() => reject(new Error("Timeout")), 10000)
       );
 
       setLoading(true);

@@ -191,6 +191,7 @@ export default function App() {
     responsible: "",
     notes: ""
   });
+  const [attendanceTempInputs, setAttendanceTempInputs] = useState<Record<string, string>>({});
 
   const [newLocationName, setNewLocationName] = useState("");
   const [editingLocation, setEditingLocation] = useState<{ id: string | number, name: string } | null>(null);
@@ -325,7 +326,7 @@ export default function App() {
   }, [attendanceEntries, searchTerm, dateRange, periodFilter]);
 
   useEffect(() => {
-    fetchEntries();
+    fetchEntries().catch(err => console.error("Initial fetch failed:", err));
     
     let socket: WebSocket | null = null;
     let reconnectTimeout: NodeJS.Timeout;
@@ -347,15 +348,15 @@ export default function App() {
           const data = JSON.parse(event.data);
           if (data.type === "NEW_ENTRY") {
             addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
-            fetchEntries();
+            fetchEntries().catch(() => {});
           } else if (data.type === "ENTRY_REVERSED") {
             addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
-            fetchEntries();
+            fetchEntries().catch(() => {});
           } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
             if (data.type === "NEW_ATTENDANCE") {
               addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
             }
-            fetchEntries();
+            fetchEntries().catch(() => {});
           }
         } catch (e) {
           // Silent catch for parsing errors
@@ -376,7 +377,7 @@ export default function App() {
         if (wsConnectedRef.current) {
           console.warn("WebSocket error:", err);
         }
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
           try {
             socket.close();
           } catch (e) {
@@ -391,19 +392,23 @@ export default function App() {
     // Fallback polling every 10 seconds for mobile/unstable connections
     pollInterval = setInterval(() => {
       if (!wsConnectedRef.current) {
-        fetchEntries();
+        fetchEntries().catch(() => {});
       }
     }, 10000);
 
     // Refresh data when window is focused (useful for mobile)
     const handleFocus = () => {
       console.log("Window focused, refreshing data...");
-      fetchEntries();
+      fetchEntries().catch(() => {});
     };
     window.addEventListener("focus", handleFocus);
 
     return () => {
-      if (socket) socket.close();
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        try {
+          socket.close();
+        } catch (e) {}
+      }
       clearTimeout(reconnectTimeout);
       clearInterval(pollInterval);
       window.removeEventListener("focus", handleFocus);
@@ -2442,10 +2447,16 @@ export default function App() {
                                           counts: {
                                             ...attendanceForm.counts,
                                             [loc.name]: {
-                                              ...attendanceForm.counts[loc.name],
+                                              ...(attendanceForm.counts[loc.name] || { men: 0, women: 0, children: 0 }),
                                               [cat.id]: current - 1
                                             }
                                           }
+                                        });
+                                        // Clear temp input for this field
+                                        setAttendanceTempInputs(prev => {
+                                          const next = { ...prev };
+                                          delete next[`${loc.name}_${cat.id}`];
+                                          return next;
                                         });
                                       }
                                     }}
@@ -2454,22 +2465,56 @@ export default function App() {
                                     <Minus className="w-4 h-4" />
                                   </button>
                                   <input
-                                    type="number"
-                                    min="0"
+                                    type="text"
+                                    inputMode="text"
                                     placeholder="0"
                                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-bold text-slate-700 text-center"
-                                    value={attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || ""}
+                                    value={attendanceTempInputs[`${loc.name}_${cat.id}`] ?? attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] ?? ""}
                                     onChange={(e) => {
-                                      const val = parseInt(e.target.value) || 0;
-                                      setAttendanceForm({
-                                        ...attendanceForm,
+                                      const val = e.target.value;
+                                      // Only allow digits and plus sign
+                                      if (/^[0-9+]*$/.test(val)) {
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: val }));
+                                        
+                                        // If it's just a number, update the main form too so totals update
+                                        if (/^\d+$/.test(val)) {
+                                          const num = parseInt(val) || 0;
+                                          setAttendanceForm(prev => ({
+                                            ...prev,
+                                            counts: {
+                                              ...prev.counts,
+                                              [loc.name]: {
+                                                ...(prev.counts[loc.name] || { men: 0, women: 0, children: 0 }),
+                                                [cat.id]: num
+                                              }
+                                            }
+                                          }));
+                                        }
+                                      }
+                                    }}
+                                    onBlur={(e) => {
+                                      const val = e.target.value;
+                                      if (!val) return;
+                                      
+                                      // Evaluate expression (only additions)
+                                      const evaluated = val.split('+').reduce((acc, part) => acc + (parseInt(part.trim()) || 0), 0);
+                                      
+                                      setAttendanceForm(prev => ({
+                                        ...prev,
                                         counts: {
-                                          ...attendanceForm.counts,
+                                          ...prev.counts,
                                           [loc.name]: {
-                                            ...attendanceForm.counts[loc.name],
-                                            [cat.id]: val
+                                            ...(prev.counts[loc.name] || { men: 0, women: 0, children: 0 }),
+                                            [cat.id]: evaluated
                                           }
                                         }
+                                      }));
+                                      
+                                      // Clear temp input so it shows the evaluated number
+                                      setAttendanceTempInputs(prev => {
+                                        const next = { ...prev };
+                                        delete next[`${loc.name}_${cat.id}`];
+                                        return next;
                                       });
                                     }}
                                   />
@@ -2482,10 +2527,16 @@ export default function App() {
                                         counts: {
                                           ...attendanceForm.counts,
                                           [loc.name]: {
-                                            ...attendanceForm.counts[loc.name],
+                                            ...(attendanceForm.counts[loc.name] || { men: 0, women: 0, children: 0 }),
                                             [cat.id]: current + 1
                                           }
                                         }
+                                      });
+                                      // Clear temp input for this field
+                                      setAttendanceTempInputs(prev => {
+                                        const next = { ...prev };
+                                        delete next[`${loc.name}_${cat.id}`];
+                                        return next;
                                       });
                                     }}
                                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"

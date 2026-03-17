@@ -1847,9 +1847,12 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            const current = counts[den.value] || "0";
-                            const newVal = (current === "0" || !current) ? "-1" : `${current}-1`;
-                            setCounts({ ...counts, [den.value]: newVal });
+                            const current = (counts[den.value] || "").toString();
+                            if (!current || current === "0") {
+                              setCounts({ ...counts, [den.value]: "-" });
+                            } else if (!current.endsWith('+') && !current.endsWith('-')) {
+                              setCounts({ ...counts, [den.value]: current + "-" });
+                            }
                           }}
                           className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-90"
                         >
@@ -1863,15 +1866,21 @@ export default function App() {
                           value={counts[den.value] || ""}
                           onFocus={(e) => {
                             const val = e.target.value;
-                            if (val && val !== "0" && !val.endsWith('+') && !val.endsWith('-')) {
-                              const newVal = val + "+";
-                              setCounts(prev => ({ ...prev, [den.value]: newVal }));
-                            } else {
-                              e.target.select();
-                              setTimeout(() => e.target.select(), 50);
+                            if (val && val !== "0") {
+                              if (!val.endsWith('+') && !val.endsWith('-')) {
+                                const newVal = val + "+";
+                                setCounts(prev => ({ ...prev, [den.value]: newVal }));
+                                // Move cursor to end
+                                setTimeout(() => {
+                                  e.target.setSelectionRange(newVal.length, newVal.length);
+                                }, 0);
+                              } else {
+                                setTimeout(() => {
+                                  e.target.setSelectionRange(val.length, val.length);
+                                }, 0);
+                              }
                             }
                           }}
-                          onClick={(e) => (e.target as HTMLInputElement).select()}
                           onChange={(e) => {
                             const val = e.target.value;
                             if (/^[0-9+\-]*$/.test(val)) {
@@ -1889,9 +1898,12 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            const current = counts[den.value] || "0";
-                            const newVal = (current === "0" || !current) ? "1" : `${current}+1`;
-                            setCounts({ ...counts, [den.value]: newVal });
+                            const current = (counts[den.value] || "").toString();
+                            if (!current || current === "0") {
+                              setCounts({ ...counts, [den.value]: "+" });
+                            } else if (!current.endsWith('+') && !current.endsWith('-')) {
+                              setCounts({ ...counts, [den.value]: current + "+" });
+                            }
                           }}
                           className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"
                         >
@@ -2743,9 +2755,12 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const current = attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0").toString();
-                                      const newVal = (current === "0" || !current) ? "-1" : `${current}-1`;
-                                      setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
+                                      const current = (attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0")).toString();
+                                      if (!current || current === "0") {
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: "-" }));
+                                      } else if (!current.endsWith('+') && !current.endsWith('-')) {
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: current + "-" }));
+                                      }
                                     }}
                                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-90"
                                   >
@@ -2759,15 +2774,20 @@ export default function App() {
                                     value={attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] === 0 ? "" : attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] ?? "")}
                                     onFocus={(e) => {
                                       const val = e.target.value;
-                                      if (val && val !== "0" && !val.endsWith('+') && !val.endsWith('-')) {
-                                        const newVal = val + "+";
-                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
-                                      } else {
-                                        e.target.select();
-                                        setTimeout(() => e.target.select(), 50);
+                                      if (val && val !== "0") {
+                                        if (!val.endsWith('+') && !val.endsWith('-')) {
+                                          const newVal = val + "+";
+                                          setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
+                                          setTimeout(() => {
+                                            e.target.setSelectionRange(newVal.length, newVal.length);
+                                          }, 0);
+                                        } else {
+                                          setTimeout(() => {
+                                            e.target.setSelectionRange(val.length, val.length);
+                                          }, 0);
+                                        }
                                       }
                                     }}
-                                    onClick={(e) => (e.target as HTMLInputElement).select()}
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       // Only allow digits, plus and minus signs
@@ -2819,9 +2839,12 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const current = attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0").toString();
-                                      const newVal = (current === "0" || !current) ? "1" : `${current}+1`;
-                                      setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
+                                      const current = (attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0")).toString();
+                                      if (!current || current === "0") {
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: "+" }));
+                                      } else if (!current.endsWith('+') && !current.endsWith('-')) {
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: current + "+" }));
+                                      }
                                     }}
                                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"
                                   >

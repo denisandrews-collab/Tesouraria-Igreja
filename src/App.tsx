@@ -139,10 +139,13 @@ const DENOMINATIONS = [
 const evaluateMath = (str: string): number => {
   const sanitized = str.replace(/[^0-9+\-]/g, '');
   if (!sanitized) return 0;
+  
+  // Handle signs and split
   return sanitized
     .replace(/-/g, '+-')
     .split('+')
-    .filter(part => part !== "")
+    .map(part => part.trim())
+    .filter(part => part !== "" && part !== "-")
     .reduce((acc, part) => acc + (parseInt(part) || 0), 0);
 };
 
@@ -1840,31 +1843,61 @@ export default function App() {
                         </label>
                         {den.type === "note" ? <DollarSign className="w-3 h-3 text-slate-300" /> : <Coins className="w-3 h-3 text-slate-300" />}
                       </div>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="0"
-                        className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-slate-50 border border-slate-200 rounded-xl md:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-semibold text-slate-700 group-hover:bg-white"
-                        value={counts[den.value] || ""}
-                        onFocus={(e) => {
-                          e.target.select();
-                          setTimeout(() => e.target.select(), 50);
-                        }}
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (/^[0-9+\-]*$/.test(val)) {
-                            setCounts({ ...counts, [den.value]: val });
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const val = e.target.value;
-                          if (val.includes('+') || val.includes('-')) {
-                            const evaluated = evaluateMath(val);
-                            setCounts({ ...counts, [den.value]: evaluated === 0 ? "" : evaluated.toString() });
-                          }
-                        }}
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = counts[den.value] || "0";
+                            const newVal = (current === "0" || !current) ? "-1" : `${current}-1`;
+                            setCounts({ ...counts, [den.value]: newVal });
+                          }}
+                          className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-90"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          className="w-full px-3 md:px-4 py-2.5 md:py-3 bg-slate-50 border border-slate-200 rounded-xl md:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-semibold text-slate-700 group-hover:bg-white text-center"
+                          value={counts[den.value] || ""}
+                          onFocus={(e) => {
+                            const val = e.target.value;
+                            if (val && val !== "0" && !val.endsWith('+') && !val.endsWith('-')) {
+                              const newVal = val + "+";
+                              setCounts(prev => ({ ...prev, [den.value]: newVal }));
+                            } else {
+                              e.target.select();
+                              setTimeout(() => e.target.select(), 50);
+                            }
+                          }}
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/^[0-9+\-]*$/.test(val)) {
+                              setCounts({ ...counts, [den.value]: val });
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value;
+                            if (val.includes('+') || val.includes('-')) {
+                              const evaluated = evaluateMath(val);
+                              setCounts({ ...counts, [den.value]: evaluated === 0 ? "" : evaluated.toString() });
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = counts[den.value] || "0";
+                            const newVal = (current === "0" || !current) ? "1" : `${current}+1`;
+                            setCounts({ ...counts, [den.value]: newVal });
+                          }}
+                          className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2710,25 +2743,9 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const current = attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || 0;
-                                      if (current > 0) {
-                                        setAttendanceForm({
-                                          ...attendanceForm,
-                                          counts: {
-                                            ...attendanceForm.counts,
-                                            [loc.name]: {
-                                              ...(attendanceForm.counts[loc.name] || { men: 0, women: 0, children: 0 }),
-                                              [cat.id]: current - 1
-                                            }
-                                          }
-                                        });
-                                        // Clear temp input for this field
-                                        setAttendanceTempInputs(prev => {
-                                          const next = { ...prev };
-                                          delete next[`${loc.name}_${cat.id}`];
-                                          return next;
-                                        });
-                                      }
+                                      const current = attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0").toString();
+                                      const newVal = (current === "0" || !current) ? "-1" : `${current}-1`;
+                                      setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
                                     }}
                                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all active:scale-90"
                                   >
@@ -2741,8 +2758,14 @@ export default function App() {
                                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-bold text-slate-700 text-center"
                                     value={attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] === 0 ? "" : attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] ?? "")}
                                     onFocus={(e) => {
-                                      e.target.select();
-                                      setTimeout(() => e.target.select(), 50);
+                                      const val = e.target.value;
+                                      if (val && val !== "0" && !val.endsWith('+') && !val.endsWith('-')) {
+                                        const newVal = val + "+";
+                                        setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
+                                      } else {
+                                        e.target.select();
+                                        setTimeout(() => e.target.select(), 50);
+                                      }
                                     }}
                                     onClick={(e) => (e.target as HTMLInputElement).select()}
                                     onChange={(e) => {
@@ -2796,23 +2819,9 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const current = attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || 0;
-                                      setAttendanceForm({
-                                        ...attendanceForm,
-                                        counts: {
-                                          ...attendanceForm.counts,
-                                          [loc.name]: {
-                                            ...(attendanceForm.counts[loc.name] || { men: 0, women: 0, children: 0 }),
-                                            [cat.id]: current + 1
-                                          }
-                                        }
-                                      });
-                                      // Clear temp input for this field
-                                      setAttendanceTempInputs(prev => {
-                                        const next = { ...prev };
-                                        delete next[`${loc.name}_${cat.id}`];
-                                        return next;
-                                      });
+                                      const current = attendanceTempInputs[`${loc.name}_${cat.id}`] ?? (attendanceForm.counts[loc.name]?.[cat.id as "men" | "women" | "children"] || "0").toString();
+                                      const newVal = (current === "0" || !current) ? "1" : `${current}+1`;
+                                      setAttendanceTempInputs(prev => ({ ...prev, [`${loc.name}_${cat.id}`]: newVal }));
                                     }}
                                     className="p-2 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-500 hover:border-emerald-200 transition-all active:scale-90"
                                   >

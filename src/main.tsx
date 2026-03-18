@@ -12,7 +12,7 @@ if (typeof window !== 'undefined') {
     msg.includes('WebSocket closed without opened');
 
   window.addEventListener('unhandledrejection', (event) => {
-    const msg = event.reason?.message || '';
+    const msg = (event.reason?.message || event.reason || '').toString();
     if (isBenignError(msg)) {
       event.preventDefault();
       event.stopPropagation();

@@ -188,6 +188,13 @@ export default function App() {
   const [showAiModal, setShowAiModal] = useState(false);
   const [historyLimit, setHistoryLimit] = useState(20);
 
+  const getCurrentPeriod = () => {
+    const hour = new Date().getHours();
+    if (hour >= 6 && hour < 12) return "Manhã";
+    if (hour >= 12 && hour < 18) return "Tarde";
+    return "Noite";
+  };
+
   // Calculator state
   const [counts, setCounts] = useState<Record<number, string>>({});
 
@@ -195,7 +202,7 @@ export default function App() {
   const [formData, setFormData] = useState({
     treasurer: "",
     date: new Date().toISOString().split("T")[0],
-    period: "Manhã" as "Manhã" | "Tarde" | "Noite",
+    period: getCurrentPeriod() as "Manhã" | "Tarde" | "Noite",
     type: "Dízimo" as "Dízimo" | "Oferta",
     amount: "",
     notes: ""
@@ -204,7 +211,7 @@ export default function App() {
   // Attendance Form state
   const [attendanceForm, setAttendanceForm] = useState({
     date: new Date().toISOString().split("T")[0],
-    period: "Manhã" as "Manhã" | "Tarde" | "Noite",
+    period: getCurrentPeriod() as "Manhã" | "Tarde" | "Noite",
     counts: {} as Record<string, { men: number; women: number; children: number }>,
     responsible: "",
     notes: ""
@@ -1039,7 +1046,8 @@ export default function App() {
         ...attendanceForm,
         counts: resetCounts,
         responsible: "",
-        notes: ""
+        notes: "",
+        period: getCurrentPeriod()
       });
       fetchEntries();
       setSuccess(true);
@@ -1091,7 +1099,7 @@ export default function App() {
             ...formData,
             amount: "",
             notes: "",
-            period: "Manhã"
+            period: getCurrentPeriod()
           });
           setCounts({});
           fetchEntries();
@@ -1119,7 +1127,7 @@ export default function App() {
               ...formData,
               amount: "",
               notes: "",
-              period: "Manhã"
+              period: getCurrentPeriod()
             });
             setCounts({});
             fetchEntries();
@@ -1417,7 +1425,7 @@ export default function App() {
                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Diário</span>
                         </div>
                       </div>
-                      <div className="h-[300px] w-full print:h-[200px] relative">
+                      <div className="h-[300px] w-full print:h-[200px] relative min-h-0 min-w-0">
                         {stats.chartData.length > 0 && isDashboardReady ? (
                           <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>
                             <AreaChart data={stats.chartData}>
@@ -1484,7 +1492,7 @@ export default function App() {
                           <TrendingUp className="w-4 h-4 text-emerald-600" />
                           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Frequência</h3>
                         </div>
-                        <div className="h-[140px] w-full">
+                        <div className="h-[140px] w-full min-h-0 min-w-0">
                           {stats.attendanceChartData.length > 0 && isDashboardReady ? (
                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                               <BarChart data={stats.attendanceChartData}>
@@ -1528,7 +1536,7 @@ export default function App() {
                           IA Insights
                         </button>
                       </div>
-                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative">
+                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative min-h-0 min-w-0">
                         <div className="w-full h-full flex-1 min-w-0">
                           {isDashboardReady ? (
                             <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>

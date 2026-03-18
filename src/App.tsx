@@ -3262,30 +3262,6 @@ export default function App() {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Versão do Sistema</p>
                     <p className="text-sm font-bold text-slate-900">{APP_VERSION}</p>
                   </div>
-                  
-                  <button
-                    onClick={() => {
-                      if (window.confirm("Isso irá recarregar a página e tentar limpar o cache do navegador para aplicar as atualizações mais recentes. Deseja continuar?")) {
-                        // Clear service workers if any
-                        if ('serviceWorker' in navigator) {
-                          navigator.serviceWorker.getRegistrations().then(registrations => {
-                            for (let registration of registrations) {
-                              registration.unregister();
-                            }
-                          });
-                        }
-                        // Clear cache and reload
-                        window.location.reload();
-                      }
-                    }}
-                    className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-slate-800 active:scale-95 transition-all shadow-lg shadow-slate-200"
-                  >
-                    Forçar Atualização
-                  </button>
-                  
-                  <p className="text-[10px] text-slate-400 text-center max-w-[200px] leading-relaxed">
-                    Se as alterações não aparecerem no Vercel, clique no botão acima para limpar o cache.
-                  </p>
                 </div>
               </section>
             </motion.div>

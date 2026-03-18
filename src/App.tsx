@@ -38,7 +38,6 @@ import {
   AlertTriangle,
   XCircle,
   Users,
-  Sparkles,
   FileText,
   Home,
   MapPin,
@@ -50,8 +49,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { GoogleGenAI } from "@google/genai";
-import Markdown from "react-markdown";
 import { db, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
 import { 
   collection, 
@@ -183,9 +180,6 @@ export default function App() {
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
   const [wsConnected, setWsConnected] = useState(false);
   const wsConnectedRef = React.useRef(false);
-  const [aiInsights, setAiInsights] = useState<string | null>(null);
-  const [generatingInsights, setGeneratingInsights] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
   const [historyLimit, setHistoryLimit] = useState(20);
 
   const getCurrentPeriod = () => {
@@ -493,7 +487,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === "dashboard") {
-      const timer = setTimeout(() => setIsDashboardReady(true), 500);
+      const timer = setTimeout(() => setIsDashboardReady(true), 1000);
       return () => {
         clearTimeout(timer);
         setIsDashboardReady(false);
@@ -878,50 +872,6 @@ export default function App() {
     } catch (error) {
       console.error("Error updating location:", error);
       addNotification("error", "Erro ao atualizar local.", "Erro");
-    }
-  };
-
-  const generateInsights = async () => {
-    if (entries.length === 0) {
-      addNotification("info", "Não há dados suficientes para gerar insights.", "IA Insights");
-      return;
-    }
-    setGeneratingInsights(true);
-    setShowAiModal(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const activeEntries = entries.filter(e => !e.is_reversed);
-      const dataSummary = activeEntries.map(e => ({
-        data: e.date,
-        tipo: e.type,
-        valor: e.amount,
-        tesoureiro: e.treasurer
-      }));
-
-      const prompt = `Como um consultor financeiro especializado em tesouraria de igrejas, analise os seguintes lançamentos da igreja "${churchName}":
-      ${JSON.stringify(dataSummary)}
-      
-      Forneça um resumo executivo com:
-      1. Tendências de arrecadação (Dízimos vs Ofertas).
-      2. Destaques positivos.
-      3. Recomendações para a gestão financeira.
-      4. Uma frase de encorajamento baseada em princípios de mordomia cristã.
-      
-      Responda em Markdown, de forma profissional e acolhedora. Use emojis para tornar a leitura agradável.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: prompt }] }],
-      });
-
-      setAiInsights(response.text);
-      addNotification("success", "Insights gerados com sucesso!", "IA Insights");
-    } catch (error) {
-      console.error("Error generating insights:", error);
-      addNotification("error", "Erro ao gerar insights com IA.", "Erro");
-      setShowAiModal(false);
-    } finally {
-      setGeneratingInsights(false);
     }
   };
 
@@ -1527,14 +1477,6 @@ export default function App() {
                           <PieChartIcon className="w-5 h-5 text-indigo-600" />
                           <h3 className="font-bold text-slate-900">Distribuição por Categoria</h3>
                         </div>
-                        <button 
-                          onClick={generateInsights}
-                          disabled={generatingInsights}
-                          className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-100 transition-all disabled:opacity-50"
-                        >
-                          <Sparkles className={`w-3 h-3 ${generatingInsights ? 'animate-pulse' : ''}`} />
-                          IA Insights
-                        </button>
                       </div>
                       <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative min-h-0 min-w-0">
                         <div className="w-full h-full flex-1 min-w-0">
@@ -1598,16 +1540,6 @@ export default function App() {
                           <Users className="w-5 h-5 text-amber-600" />
                         </div>
                         <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Pessoas</p>
-                      </motion.button>
-                      <motion.button 
-                        onClick={generateInsights}
-                        whileTap={{ scale: 0.95 }}
-                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-violet-200 transition-all group text-center"
-                      >
-                        <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                          <Sparkles className="w-5 h-5 text-violet-600" />
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">IA Insights</p>
                       </motion.button>
                     </div>
                   </div>
@@ -3786,78 +3718,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* AI Insights Modal */}
-      <AnimatePresence>
-        {showAiModal && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => !generatingInsights && setShowAiModal(false)}
-              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
-            >
-              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-indigo-50/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                    <Sparkles className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900">IA Insights</h3>
-                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Consultoria Financeira Inteligente</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowAiModal(false)}
-                  disabled={generatingInsights}
-                  className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 disabled:opacity-0"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-                {generatingInsights ? (
-                  <div className="py-20 text-center space-y-6">
-                    <div className="relative w-20 h-20 mx-auto">
-                      <div className="absolute inset-0 border-4 border-indigo-100 rounded-full" />
-                      <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin" />
-                      <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-indigo-600 animate-pulse" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-lg font-bold text-slate-900">Analisando dados...</p>
-                      <p className="text-sm text-slate-400 font-medium">O Gemini está processando seus lançamentos financeiros.</p>
-                    </div>
-                  </div>
-                ) : aiInsights ? (
-                  <div className="prose prose-slate max-w-none prose-sm prose-headings:text-slate-900 prose-headings:font-bold prose-p:text-slate-600 prose-p:leading-relaxed prose-strong:text-indigo-600">
-                    <Markdown>{aiInsights as string}</Markdown>
-                  </div>
-                ) : (
-                  <div className="py-20 text-center">
-                    <p className="text-slate-400 font-medium">Nenhum insight gerado ainda.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <button
-                  onClick={() => setShowAiModal(false)}
-                  className="px-8 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
-                >
-                  Fechar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -10,7 +10,8 @@ if (typeof window !== 'undefined') {
     msg.includes('vite') || 
     msg.includes('failed to connect to websocket') ||
     msg.includes('WebSocket closed without opened') ||
-    msg.includes('HMR');
+    msg.includes('HMR') ||
+    msg.includes('The width(-1) and height(-1) of chart should be greater than 0');
 
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason;

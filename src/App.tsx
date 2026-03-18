@@ -1444,7 +1444,7 @@ export default function App() {
                         </div>
                         <div className="h-[140px] w-full min-h-0 min-w-0">
                           {stats.attendanceChartData.length > 0 && isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
                               <BarChart data={stats.attendanceChartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis 

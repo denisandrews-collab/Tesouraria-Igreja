@@ -8,7 +8,8 @@ if (typeof window !== 'undefined') {
   const isBenignError = (msg: string) => 
     msg.includes('WebSocket') || 
     msg.includes('vite') || 
-    msg.includes('failed to connect to websocket');
+    msg.includes('failed to connect to websocket') ||
+    msg.includes('WebSocket closed without opened');
 
   window.addEventListener('unhandledrejection', (event) => {
     const msg = event.reason?.message || '';

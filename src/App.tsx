@@ -445,7 +445,8 @@ export default function App() {
         if (wsConnectedRef.current) {
           console.warn("WebSocket error:", err);
         }
-        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        // Don't close if it's already closing or closed
+        if (socket && socket.readyState === WebSocket.OPEN) {
           try {
             socket.close();
           } catch (e) {
@@ -1383,14 +1384,8 @@ export default function App() {
             </div>
             <div className="flex gap-3 w-full md:w-auto">
               <button 
-                onClick={() => setActiveTab("calculator")}
-                className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-100"
-              >
-                Calculadora
-              </button>
-              <button 
                 onClick={() => setActiveTab("form")}
-                className="flex-1 md:flex-none px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest"
+                className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-100"
               >
                 Novo Registro
               </button>
@@ -1424,7 +1419,7 @@ export default function App() {
                       </div>
                       <div className="h-[300px] w-full print:h-[200px] relative">
                         {stats.chartData.length > 0 && isDashboardReady ? (
-                          <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1} debounce={100}>
+                          <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>
                             <AreaChart data={stats.chartData}>
                               <defs>
                                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
@@ -1491,7 +1486,7 @@ export default function App() {
                         </div>
                         <div className="h-[140px] w-full">
                           {stats.attendanceChartData.length > 0 && isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                               <BarChart data={stats.attendanceChartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis 
@@ -1536,7 +1531,7 @@ export default function App() {
                       <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative">
                         <div className="w-full h-full flex-1 min-w-0">
                           {isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1} debounce={100}>
+                            <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>
                               <PieChart>
                                 <Pie
                                   data={stats.pieData}
@@ -1575,17 +1570,7 @@ export default function App() {
                     </div>
 
                     {/* Quick Actions */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:hidden">
-                      <motion.button 
-                        onClick={() => setActiveTab("calculator")}
-                        whileTap={{ scale: 0.95 }}
-                        className="p-4 bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-center"
-                      >
-                        <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2 mx-auto group-hover:scale-110 transition-transform">
-                          <Calculator className="w-5 h-5 text-indigo-600" />
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">Calculadora</p>
-                      </motion.button>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print:hidden">
                       <motion.button 
                         onClick={() => setActiveTab("form")}
                         whileTap={{ scale: 0.95 }}
@@ -1767,18 +1752,7 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pb-24 md:pb-0">
-                  <motion.button 
-                    onClick={() => setActiveTab("calculator")}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-8 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm hover:border-indigo-200 transition-all group text-left"
-                  >
-                    <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                      <Calculator className="w-8 h-8 text-indigo-600" />
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-900 mb-2">Calculadora de Caixa</h3>
-                    <p className="text-sm text-slate-500 leading-relaxed text-balance">Contabilize notas e moedas fisicamente antes de registrar o valor total.</p>
-                  </motion.button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-24 md:pb-0">
                   <motion.button 
                     onClick={() => setActiveTab("form")}
                     whileTap={{ scale: 0.95 }}
@@ -2074,9 +2048,8 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setActiveTab("calculator")}
-                        className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                        className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-700 transition-colors"
                       >
-                        <Calculator className="w-3 h-3" />
                         Usar Calculadora de Espécie
                       </button>
                     </div>
@@ -3480,16 +3453,6 @@ export default function App() {
             <span className="text-[10px] font-bold uppercase tracking-tighter">Início</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab("calculator")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "calculator" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <Calculator className={`w-6 h-6 ${activeTab === "calculator" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Cálculo</span>
-          </button>
-          
           <button
             onClick={() => setActiveTab("form")}
             className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${

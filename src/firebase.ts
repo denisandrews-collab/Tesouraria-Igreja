@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { getFirestore, terminate } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB4dM36D8qivpsdFeeFOuZDwuo7cH6XL5A",
@@ -15,6 +16,7 @@ const firebaseConfig = {
 // Initialize Firebase
 let app: any;
 let db: any;
+let auth: any;
 let analytics: any;
 let isFirebaseEnabled = false;
 
@@ -22,6 +24,7 @@ try {
   console.log("Iniciando Firebase...");
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
+  auth = getAuth(app);
   isFirebaseEnabled = true;
 } catch (error) {
   console.error("Erro crítico na inicialização do Firebase:", error);
@@ -40,4 +43,4 @@ if (typeof window !== "undefined" && app) {
     });
 }
 
-export { app, db, analytics, isFirebaseEnabled };
+export { app, db, auth, analytics, isFirebaseEnabled };

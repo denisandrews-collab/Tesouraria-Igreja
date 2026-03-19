@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { QRCodeCanvas } from "qrcode.react";
+import { jsPDF } from "jspdf";
 import { 
   PlusCircle, 
   History, 
@@ -44,12 +46,25 @@ import {
   Minus,
   Plus,
   RefreshCw,
-  Clock
+  Clock,
+  Baby,
+  QrCode,
+  Printer,
+  Heart,
+  Smile,
+  Frown,
+  Meh,
+  UserPlus,
+  Check,
+  Mail,
+  ChevronRight,
+  LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { jsPDF } from "jspdf";
+import { QRCodeSVG } from "qrcode.react";
 import autoTable from "jspdf-autotable";
-import { db, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
+import JsBarcode from 'jsbarcode';
+import { db, auth, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
 import { 
   collection, 
   addDoc, 
@@ -59,8 +74,17 @@ import {
   updateDoc, 
   doc,
   deleteDoc,
-  Timestamp
+  Timestamp,
+  onSnapshot,
+  getDoc,
+  setDoc
 } from "firebase/firestore";
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  User as FirebaseUser 
+} from "firebase/auth";
 import { 
   BarChart, 
   Bar, 
@@ -110,6 +134,56 @@ interface Location {
   created_at: string;
 }
 
+interface Guardian {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  photo?: string;
+  created_at: string;
+}
+
+interface Child {
+  id: string;
+  name: string;
+  birthDate: string;
+  photo?: string;
+  guardianId: string;
+  allergies?: string;
+  notes?: string;
+  created_at: string;
+}
+
+interface KidsCheckIn {
+  id: string;
+  childId: string;
+  guardianId: string;
+  date: string;
+  time: string;
+  room: string;
+  status: "checked-in" | "checked-out";
+  checkoutTime?: string;
+  checkedOutBy?: string;
+  created_at: string;
+}
+
+interface Room {
+  id: string;
+  name: string;
+  teacher?: string;
+  capacity?: number;
+  minAge?: number;
+  maxAge?: number;
+  created_at: string;
+}
+
+interface UserProfile {
+  uid: string;
+  email: string;
+  role: "admin" | "leader" | "parent";
+  name?: string;
+}
+
 interface Notification {
   id: string;
   type: "success" | "error" | "info" | "warning";
@@ -147,8 +221,8 @@ const evaluateMath = (str: string): number => {
 };
 
 export default function App() {
-  const APP_VERSION = "1.1.0-fix-sync";
-  const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance">("dashboard");
+  const APP_VERSION = "1.2.0-kids-ministry";
+  const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance" | "kids">("dashboard");
   const [userRole, setUserRole] = useState<"master" | "junior" | "user">(() => (localStorage.getItem("userRole") as any) || "user");
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -162,6 +236,26 @@ export default function App() {
   const [locations, setLocations] = useState<Location[]>([
     { id: 'initial-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }
   ]);
+  
+  // Kids Ministry State
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [children, setChildren] = useState<Child[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [kidsCheckIns, setKidsCheckIns] = useState<KidsCheckIn[]>([]);
+  const [kidsTab, setKidsTab] = useState<"checkin" | "children" | "guardians" | "classrooms" | "reports">("checkin");
+  const [selectedGuardian, setSelectedGuardian] = useState<Guardian | null>(null);
+  const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>("");
+  const [showAddGuardianModal, setShowAddGuardianModal] = useState(false);
+  const [showAddChildModal, setShowAddChildModal] = useState(false);
+  const [showAddRoomModal, setShowAddRoomModal] = useState(false);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [kidsSearchTerm, setKidsSearchTerm] = useState("");
+  
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -175,12 +269,102 @@ export default function App() {
   const [attendancePeriodFilter, setAttendancePeriodFilter] = useState<"Todos" | "Manhã" | "Tarde" | "Noite">("Todos");
   const [showValues, setShowValues] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isDashboardReady, setIsDashboardReady] = useState(false);
+  const [isMobileCheckin, setIsMobileCheckin] = useState(false);
+  const [isPublicRegistration, setIsPublicRegistration] = useState(false);
+  const [isRoomLeader, setIsRoomLeader] = useState(false);
+  const [selectedRoomForLeader, setSelectedRoomForLeader] = useState<Room | null>(null);
+  const [mobilePhone, setMobilePhone] = useState("");
+  const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success">("phone");
+  const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
+  const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get("mode");
+    if (mode === "mobile-checkin") {
+      setIsMobileCheckin(true);
+    } else if (mode === "registration") {
+      setIsPublicRegistration(true);
+    } else if (mode === "room-leader") {
+      setIsRoomLeader(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!auth) return;
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        try {
+          const profileDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+          if (profileDoc.exists()) {
+            setUserProfile(profileDoc.data() as UserProfile);
+          } else {
+            const defaultProfile: UserProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || "",
+              role: "parent"
+            };
+            setUserProfile(defaultProfile);
+            await setDoc(doc(db, "users", firebaseUser.uid), defaultProfile);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        }
+      } else {
+        setUserProfile(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [db]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth) return;
+    try {
+      setIsLoggingIn(true);
+      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      addNotification("success", "Login realizado com sucesso.");
+      setLoginEmail("");
+      setLoginPassword("");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      addNotification("error", "Erro ao fazer login. Verifique suas credenciais.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!auth) return;
+    try {
+      await signOut(auth);
+      addNotification("info", "Você saiu do sistema.");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
   const [serverFirebaseEnabled, setServerFirebaseEnabled] = useState(false);
   const [firebaseStatus, setFirebaseStatus] = useState<"online" | "offline" | "error">("offline");
   const [wsConnected, setWsConnected] = useState(false);
   const wsConnectedRef = React.useRef(false);
   const [historyLimit, setHistoryLimit] = useState(20);
+  const [isDashboardReady, setIsDashboardReady] = useState(false);
+
+  const calculateAge = (birthDate: string) => {
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const findRoomForAge = (age: number) => {
+    return rooms.find(r => (r.minAge ?? 0) <= age && (r.maxAge ?? 99) >= age);
+  };
 
   const getCurrentPeriod = () => {
     const hour = new Date().getHours();
@@ -402,59 +586,64 @@ export default function App() {
     let pollInterval: NodeJS.Timeout;
 
     const connectWS = () => {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}`;
-      socket = new WebSocket(wsUrl);
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}`;
+        socket = new WebSocket(wsUrl);
 
-      socket.onopen = () => {
-        console.log("WebSocket connected");
-        setWsConnected(true);
-        wsConnectedRef.current = true;
-      };
+        socket.onopen = () => {
+          console.log("WebSocket connected");
+          setWsConnected(true);
+          wsConnectedRef.current = true;
+        };
 
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "NEW_ENTRY") {
-            addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
-            fetchEntries().catch(() => {});
-          } else if (data.type === "ENTRY_REVERSED") {
-            addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
-            fetchEntries().catch(() => {});
-          } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
-            if (data.type === "NEW_ATTENDANCE") {
-              addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
-            }
-            fetchEntries().catch(() => {});
-          }
-        } catch (e) {
-          // Silent catch for parsing errors
-        }
-      };
-
-      socket.onclose = () => {
-        if (wsConnectedRef.current) {
-          console.log("WebSocket disconnected, retrying in 5s...");
-        }
-        setWsConnected(false);
-        wsConnectedRef.current = false;
-        reconnectTimeout = setTimeout(connectWS, 5000);
-      };
-
-      socket.onerror = (err) => {
-        // Only log if we were previously connected to avoid spamming in serverless environments
-        if (wsConnectedRef.current) {
-          console.warn("WebSocket error:", err);
-        }
-        // Don't close if it's already closing or closed
-        if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.onmessage = (event) => {
           try {
-            socket.close();
+            const data = JSON.parse(event.data);
+            if (data.type === "NEW_ENTRY") {
+              addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
+              fetchEntries().catch(() => {});
+            } else if (data.type === "ENTRY_REVERSED") {
+              addNotification("warning", `Um lançamento foi estornado.`, "Estorno Realizado");
+              fetchEntries().catch(() => {});
+            } else if (data.type === "NEW_LOCATION" || data.type === "LOCATION_DELETED" || data.type === "NEW_ATTENDANCE" || data.type === "LOCATION_UPDATED") {
+              if (data.type === "NEW_ATTENDANCE") {
+                addNotification("success", "Nova contagem de pessoas registrada.", "Contagem");
+              }
+              fetchEntries().catch(() => {});
+            }
           } catch (e) {
-            // Ignore close errors
+            // Silent catch for parsing errors
           }
-        }
-      };
+        };
+
+        socket.onclose = () => {
+          if (wsConnectedRef.current) {
+            console.log("WebSocket disconnected, retrying in 5s...");
+          }
+          setWsConnected(false);
+          wsConnectedRef.current = false;
+          reconnectTimeout = setTimeout(connectWS, 5000);
+        };
+
+        socket.onerror = (err) => {
+          // Only log if we were previously connected to avoid spamming in serverless environments
+          if (wsConnectedRef.current) {
+            console.warn("WebSocket error:", err);
+          }
+          // Don't close if it's already closing or closed
+          if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+            try {
+              socket.close();
+            } catch (e) {
+              // Ignore close errors
+            }
+          }
+        };
+      } catch (e) {
+        console.warn("Failed to initiate WebSocket connection:", e);
+        reconnectTimeout = setTimeout(connectWS, 5000);
+      }
     };
 
     connectWS();
@@ -615,6 +804,23 @@ export default function App() {
           
           const uniqueLocations = Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[];
           setLocations(uniqueLocations);
+
+          // Fetch Kids Data
+          const querySnapshotGuardians = await getDocs(collection(db, "guardians"));
+          const guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
+          setGuardians(guardiansData);
+
+          const querySnapshotChildren = await getDocs(collection(db, "children"));
+          const childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+          setChildren(childrenData);
+
+          const querySnapshotKidsCheckIns = await getDocs(collection(db, "kids_checkins"));
+          const kidsCheckInsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+          setKidsCheckIns(kidsCheckInsData);
+
+          const querySnapshotRooms = await getDocs(collection(db, "rooms"));
+          const roomsData = querySnapshotRooms.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
+          setRooms(roomsData);
           
           setLoading(false);
           return;
@@ -804,6 +1010,265 @@ export default function App() {
     } catch (error) {
       console.error("Error adding location:", error);
       addNotification("error", "Erro ao adicionar local. Verifique sua conexão.", "Erro");
+    }
+  };
+
+  // Kids Ministry Logic
+  const handleAddGuardian = async (guardianData: Omit<Guardian, "id" | "created_at">) => {
+    try {
+      setSubmitting(true);
+      const newGuardian = {
+        ...guardianData,
+        created_at: new Date().toISOString()
+      };
+      if (db && isFirebaseEnabled) {
+        const docRef = await addDoc(collection(db, "guardians"), newGuardian);
+        fetchEntries();
+        setShowAddGuardianModal(false);
+        addNotification("success", "Responsável adicionado com sucesso.");
+        return docRef.id;
+      }
+    } catch (error) {
+      console.error("Error adding guardian:", error);
+      addNotification("error", "Erro ao adicionar responsável.");
+    } finally {
+      setSubmitting(false);
+    }
+    return null;
+  };
+
+  const handleAddChild = async (childData: Omit<Child, "id" | "created_at">) => {
+    try {
+      setSubmitting(true);
+      const newChild = {
+        ...childData,
+        created_at: new Date().toISOString()
+      };
+      if (db && isFirebaseEnabled) {
+        const docRef = await addDoc(collection(db, "children"), newChild);
+        fetchEntries();
+        setShowAddChildModal(false);
+        addNotification("success", "Criança adicionada com sucesso.");
+        return docRef.id;
+      }
+    } catch (error) {
+      console.error("Error adding child:", error);
+      addNotification("error", "Erro ao adicionar criança.");
+    } finally {
+      setSubmitting(false);
+    }
+    return null;
+  };
+
+  const handleCheckOut = async (checkInId: string) => {
+    try {
+      setSubmitting(true);
+      if (db && isFirebaseEnabled) {
+        await updateDoc(doc(db, "kids_checkins", checkInId), {
+          status: "checked-out",
+          checkoutTime: new Date().toISOString(),
+          checkedOutBy: "Room Leader" // Or specific leader name if we had it
+        });
+        fetchEntries();
+        addNotification("success", "Check-out realizado com sucesso.");
+      }
+    } catch (error) {
+      console.error("Error checking out:", error);
+      addNotification("error", "Erro ao realizar check-out.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddRoom = async (roomData: Omit<Room, "id" | "created_at">) => {
+    try {
+      setSubmitting(true);
+      const newRoom = {
+        ...roomData,
+        created_at: new Date().toISOString()
+      };
+      if (db && isFirebaseEnabled) {
+        await addDoc(collection(db, "rooms"), newRoom);
+        fetchEntries();
+        setShowAddRoomModal(false);
+        addNotification("success", "Sala adicionada com sucesso.");
+      }
+    } catch (error) {
+      console.error("Error adding room:", error);
+      addNotification("error", "Erro ao adicionar sala.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const printLabels = (guardian: Guardian, selectedChildrenList: Child[], roomName: string, checkInId?: string) => {
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: [80, 50] // Typical label size
+    });
+
+    const securityCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    // 1. Print Child Labels (one for each child)
+    selectedChildrenList.forEach((child, index) => {
+      if (index > 0) doc.addPage([80, 50], 'landscape');
+      
+      // Header
+      doc.setFillColor(79, 70, 229); // Indigo-600
+      doc.rect(0, 0, 80, 12, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("CRIANÇA", 40, 8, { align: "center" });
+      
+      // Security Code
+      doc.setTextColor(79, 70, 229);
+      doc.setFontSize(24);
+      doc.text(securityCode, 75, 25, { align: "right" });
+      
+      // Child Info
+      doc.setTextColor(15, 23, 42); // Slate-900
+      doc.setFontSize(16);
+      doc.text(child.name.toUpperCase(), 5, 22);
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139); // Slate-500
+      doc.text(`Responsável: ${guardian.name}`, 5, 32);
+      doc.text(`Sala: ${roomName}`, 5, 37);
+      
+      // Barcode for checkout
+      if (checkInId) {
+        try {
+          const canvas = document.createElement("canvas");
+          JsBarcode(canvas, checkInId, {
+            format: "CODE128",
+            width: 1,
+            height: 30,
+            displayValue: false,
+            margin: 0
+          });
+          const barcodeData = canvas.toDataURL("image/png");
+          doc.addImage(barcodeData, 'PNG', 5, 39, 40, 8);
+        } catch (err) {
+          console.error("Error generating barcode:", err);
+        }
+      }
+
+      if (child.allergies) {
+        doc.setFillColor(254, 226, 226); // Rose-100
+        doc.rect(45, 32, 30, 14, 'F');
+        doc.setTextColor(225, 29, 72); // Rose-600
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(`⚠️ ALERGIA:`, 47, 36);
+        doc.setFontSize(7);
+        doc.text(child.allergies.toUpperCase(), 47, 40, { maxWidth: 26 });
+      }
+      
+      doc.setTextColor(148, 163, 184); // Slate-400
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${churchName} - ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`, 5, 48);
+    });
+
+    // 2. Print Guardian Label (one for all children)
+    doc.addPage([80, 50], 'landscape');
+    
+    // Header
+    doc.setFillColor(15, 23, 42); // Slate-900
+    doc.rect(0, 0, 80, 12, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("COMPROVANTE RESPONSÁVEL", 40, 8, { align: "center" });
+    
+    // Security Code
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(24);
+    doc.text(securityCode, 75, 25, { align: "right" });
+    
+    // Guardian Info
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(16);
+    doc.text(guardian.name.toUpperCase(), 5, 22);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Criança(s) sob cuidado:`, 5, 32);
+    doc.text(`Sala: ${roomName}`, 40, 32);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    selectedChildrenList.forEach((c, i) => {
+      if (i < 3) { // Limit to 3 children on label to avoid overflow
+        doc.text(`• ${c.name}`, 8, 38 + (i * 4));
+      } else if (i === 3) {
+        doc.text(`• e mais ${selectedChildrenList.length - 3}...`, 8, 38 + (i * 4));
+      }
+    });
+    
+    doc.setTextColor(148, 163, 184);
+    doc.setFontSize(7);
+    doc.text(`APRESENTE ESTA ETIQUETA PARA RETIRADA`, 40, 48, { align: "center" });
+
+    doc.autoPrint();
+    const pdfOutput = doc.output('bloburl');
+    window.open(pdfOutput, '_blank');
+  };
+
+  const handleCheckIn = async () => {
+    if (!selectedGuardian || selectedChildren.length === 0) {
+      addNotification("warning", "Selecione o responsável e pelo menos uma criança.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const date = new Date().toISOString().split("T")[0];
+      const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      
+      const selectedChildrenData = children.filter(c => selectedChildren.includes(c.id));
+      
+      for (const child of selectedChildrenData) {
+        // Automatic room assignment based on age
+        const age = calculateAge(child.birthDate);
+        const autoRoom = findRoomForAge(age);
+        const roomId = selectedRoomId || autoRoom?.id;
+        const room = rooms.find(r => r.id === roomId);
+        const roomName = room ? room.name : "Sala Geral";
+
+        const checkInData: Omit<KidsCheckIn, "id"> = {
+          childId: child.id,
+          guardianId: selectedGuardian.id,
+          date,
+          time,
+          room: roomName,
+          status: "checked-in",
+          created_at: new Date().toISOString()
+        };
+        let checkInId = "";
+        if (db && isFirebaseEnabled) {
+          const docRef = await addDoc(collection(db, "kids_checkins"), checkInData);
+          checkInId = docRef.id;
+        }
+        
+        // Print label for this specific child and its room
+        printLabels(selectedGuardian, [child], roomName, checkInId);
+      }
+
+      fetchEntries();
+      setSelectedChildren([]);
+      setSelectedGuardian(null);
+      if (isMobileCheckin) setMobileStep("success");
+      addNotification("success", "Check-in realizado com sucesso!");
+    } catch (error) {
+      console.error("Error during check-in:", error);
+      addNotification("error", "Erro ao realizar check-in.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1178,6 +1643,503 @@ export default function App() {
     setActiveTab("dashboard");
   };
 
+  const LoginScreen = ({ title }: { title: string }) => (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+      >
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+            <Lock className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+          <p className="text-slate-500 text-sm mt-2">Faça login para continuar</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                placeholder="seu@email.com"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="password"
+                required
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoggingIn}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isLoggingIn ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                <span>Entrar</span>
+                <ChevronRight className="w-5 h-5" />
+              </>
+            )}
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+
+  if (isRoomLeader) {
+    if (!user) {
+      return <LoginScreen title="App do Líder" />;
+    }
+
+    const activeCheckins = kidsCheckIns.filter(c => c.status === "checked-in" && (!selectedRoomForLeader || c.room === selectedRoomForLeader.name));
+    
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
+        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-xl overflow-hidden mt-8">
+          <div className="bg-indigo-600 p-8 text-white text-center relative">
+            <button 
+              onClick={handleLogout}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <Users className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold">Líder de Sala</h1>
+            <p className="text-indigo-100 text-sm mt-2">Gerenciamento de sala e checkout</p>
+          </div>
+
+          <div className="p-8">
+            {!selectedRoomForLeader ? (
+              <div className="space-y-6">
+                <h2 className="text-lg font-bold text-slate-800">Selecione sua Sala</h2>
+                <div className="grid grid-cols-1 gap-4">
+                  {rooms.map(room => (
+                    <button
+                      key={room.id}
+                      onClick={() => setSelectedRoomForLeader(room)}
+                      className="p-6 bg-slate-50 border border-slate-200 rounded-3xl text-left hover:border-indigo-500 transition-all group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-lg font-bold text-slate-800 group-hover:text-indigo-600">{room.name}</p>
+                          <p className="text-xs text-slate-400">
+                            {room.minAge}-{room.maxAge} anos
+                            {room.teacher && ` • Prof: ${room.teacher}`}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <button 
+                      onClick={() => setSelectedRoomForLeader(null)}
+                      className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-1 flex items-center gap-1"
+                    >
+                      <ChevronRight className="w-3 h-3 rotate-180" />
+                      Trocar Sala
+                    </button>
+                    <h2 className="text-xl font-bold text-slate-800">{selectedRoomForLeader.name}</h2>
+                    {selectedRoomForLeader.teacher && (
+                      <p className="text-xs text-slate-500">Professor(a): {selectedRoomForLeader.teacher}</p>
+                    )}
+                    <p className="text-xs text-slate-400">{activeCheckins.length} crianças presentes</p>
+                  </div>
+                  <button onClick={() => setSelectedRoomForLeader(null)} className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Trocar Sala</button>
+                </div>
+
+                <div className="space-y-4">
+                  {activeCheckins.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Users className="w-8 h-8 text-slate-300" />
+                      </div>
+                      <p className="text-sm text-slate-400">Nenhuma criança na sala no momento.</p>
+                    </div>
+                  ) : (
+                    activeCheckins.map(checkin => {
+                      const child = children.find(c => c.id === checkin.childId);
+                      const guardian = guardians.find(g => g.id === checkin.guardianId);
+                      return (
+                        <div key={checkin.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">{child?.name}</p>
+                            <p className="text-[10px] text-slate-400">Responsável: {guardian?.name}</p>
+                          </div>
+                          <button
+                            onClick={() => handleCheckOut(checkin.id)}
+                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all"
+                          >
+                            Checkout
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="pt-6 border-t border-slate-100">
+                  <button 
+                    onClick={() => {
+                      // Logic to open camera and scan QR code for checkout
+                      // For now, we'll just show a notification that it's coming soon
+                      addNotification("info", "Funcionalidade de leitura de QR Code para checkout em breve.");
+                    }}
+                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 transition-all"
+                  >
+                    <QrCode className="w-5 h-5" />
+                    Ler QR Code para Checkout
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isPublicRegistration) {
+    if (!user) {
+      return <LoginScreen title="Cadastro Kids" />;
+    }
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
+        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-xl overflow-hidden mt-8">
+          <div className="bg-indigo-600 p-8 text-white text-center relative">
+            <button 
+              onClick={handleLogout}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <UserPlus className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold">Cadastro Kids</h1>
+            <p className="text-indigo-100 text-sm mt-2">Registre sua família para o ministério infantil</p>
+          </div>
+
+          <div className="p-8">
+            {registrationStep === "guardian" && (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const guardianId = await handleAddGuardian({
+                  name: formData.get('name') as string,
+                  phone: formData.get('phone') as string,
+                  email: formData.get('email') as string,
+                });
+                if (guardianId) {
+                  setRegistrationGuardianId(guardianId);
+                  setRegistrationStep("children");
+                }
+              }} className="space-y-6">
+                <h2 className="text-lg font-bold text-slate-800">Passo 1: Responsável</h2>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                    <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
+                    <input name="phone" required type="tel" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                    <input name="email" type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                </div>
+                <button type="submit" disabled={submitting} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50">
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Próximo Passo"}
+                </button>
+              </form>
+            )}
+
+            {registrationStep === "children" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-800">Passo 2: Crianças</h2>
+                  <button onClick={() => setRegistrationStep("success")} className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Finalizar</button>
+                </div>
+                
+                <div className="space-y-4">
+                  {children.filter(c => c.guardianId === registrationGuardianId).map(child => (
+                    <div key={child.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{child.name}</p>
+                        <p className="text-[10px] text-slate-400">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                      </div>
+                      <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  await handleAddChild({
+                    name: formData.get('name') as string,
+                    birthDate: formData.get('birthDate') as string,
+                    guardianId: registrationGuardianId!,
+                    allergies: formData.get('allergies') as string,
+                    notes: formData.get('notes') as string,
+                  });
+                  e.currentTarget.reset();
+                }} className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adicionar Criança</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                    <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                    <input name="birthDate" required type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Observações</label>
+                    <input name="allergies" placeholder="Ex: Alergia a amendoim" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  </div>
+                  <button type="submit" disabled={submitting} className="w-full py-3 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50">
+                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Adicionar Criança"}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {registrationStep === "success" && (
+              <div className="text-center py-8">
+                <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Check className="w-10 h-10 text-emerald-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Cadastro Concluído!</h2>
+                <p className="text-slate-500 mb-8">Sua família já está cadastrada. Agora você pode realizar o check-in no balcão ou pelo QR Code.</p>
+                <button 
+                  onClick={() => window.location.href = '/'}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-slate-800 transition-all"
+                >
+                  Voltar ao Início
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isMobileCheckin) {
+    if (!user) {
+      return <LoginScreen title="Check-in Mobile" />;
+    }
+
+    const filteredGuardians = guardians.filter(g => g.phone.includes(mobilePhone));
+    const guardian = filteredGuardians.length === 1 ? filteredGuardians[0] : null;
+
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 flex flex-col items-center justify-center font-sans relative">
+        <button 
+          onClick={handleLogout}
+          className="absolute top-4 right-4 p-2 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"
+        >
+          <LogOut className="w-5 h-5 text-slate-400" />
+        </button>
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl shadow-indigo-100 overflow-hidden border border-slate-100 p-8 space-y-8"
+        >
+          <div className="flex flex-col items-center text-center space-y-4">
+            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+              <Baby className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">{churchName}</h1>
+              <p className="text-sm text-slate-500 font-medium">Check-in Kids Ministry</p>
+            </div>
+          </div>
+
+          {mobileStep === "phone" && (
+            <div className="space-y-6">
+              <div className="space-y-2 text-center">
+                <p className="text-sm text-slate-600">Digite seu telefone para começar</p>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  type="tel"
+                  placeholder="(00) 00000-0000"
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-lg font-bold"
+                  value={mobilePhone}
+                  onChange={(e) => setMobilePhone(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  if (guardian) {
+                    setSelectedGuardian(guardian);
+                    setMobileStep("selection");
+                  } else {
+                    addNotification("error", "Responsável não encontrado. Procure a recepção.");
+                  }
+                }}
+                disabled={!mobilePhone}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+              >
+                Continuar
+              </button>
+            </div>
+          )}
+
+          {mobileStep === "selection" && selectedGuardian && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold">
+                  {selectedGuardian.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{selectedGuardian.name}</p>
+                  <p className="text-xs text-indigo-600 font-medium">{selectedGuardian.phone}</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Selecione a Sala:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {rooms.map(room => (
+                    <button
+                      key={room.id}
+                      onClick={() => setSelectedRoomId(room.id)}
+                      className={`px-3 py-3 rounded-xl border text-xs font-bold uppercase tracking-widest transition-all ${
+                        selectedRoomId === room.id
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                          : "bg-white text-slate-500 border-slate-200"
+                      }`}
+                    >
+                      {room.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Selecione as crianças:</p>
+                <div className="space-y-2">
+                  {children
+                    .filter(c => c.guardianId === selectedGuardian.id)
+                    .map(child => (
+                      <button
+                        key={child.id}
+                        onClick={() => {
+                          if (selectedChildren.includes(child.id)) {
+                            setSelectedChildren(selectedChildren.filter(id => id !== child.id));
+                          } else {
+                            setSelectedChildren([...selectedChildren, child.id]);
+                          }
+                        }}
+                        className={`w-full p-4 rounded-2xl border transition-all text-left flex items-center gap-3 ${
+                          selectedChildren.includes(child.id)
+                            ? "bg-white border-indigo-600 shadow-md ring-2 ring-indigo-600/10"
+                            : "bg-white/50 border-slate-200"
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          selectedChildren.includes(child.id) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                        }`}>
+                          <Baby className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className={`text-sm font-bold ${selectedChildren.includes(child.id) ? "text-indigo-600" : "text-slate-700"}`}>
+                            {child.name}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              <button
+                onClick={async () => {
+                  await handleCheckIn();
+                  setMobileStep("success");
+                }}
+                disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Confirmar Check-in"}
+              </button>
+            </div>
+          )}
+
+          {mobileStep === "success" && (
+            <div className="text-center space-y-6 py-8">
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-12 h-12" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-slate-900">Check-in Realizado!</h2>
+                <p className="text-sm text-slate-500">As etiquetas estão sendo impressas na recepção.</p>
+                {rooms.find(r => r.id === selectedRoomId) && (
+                  <div className="mt-4 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-1">Sala Designada:</p>
+                    <p className="text-lg font-bold text-slate-900">{rooms.find(r => r.id === selectedRoomId)?.name}</p>
+                    {rooms.find(r => r.id === selectedRoomId)?.teacher && (
+                      <p className="text-sm text-slate-600 mt-1">Professor(a): {rooms.find(r => r.id === selectedRoomId)?.teacher}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setMobileStep("phone");
+                  setMobilePhone("");
+                  setSelectedGuardian(null);
+                  setSelectedChildren([]);
+                  setSelectedRoomId("");
+                }}
+                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-800 transition-all"
+              >
+                Fazer outro Check-in
+              </button>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
       {/* Sidebar / Navigation Rail */}
@@ -1375,9 +2337,9 @@ export default function App() {
                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Diário</span>
                         </div>
                       </div>
-                      <div className="h-[300px] w-full print:h-[200px] relative min-h-0 min-w-0">
+                      <div className="h-[300px] w-full print:h-[200px] relative min-h-[300px] min-w-0">
                         {stats.chartData.length > 0 && isDashboardReady ? (
-                          <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
                             <AreaChart data={stats.chartData}>
                               <defs>
                                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
@@ -1442,7 +2404,7 @@ export default function App() {
                           <TrendingUp className="w-4 h-4 text-emerald-600" />
                           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Frequência</h3>
                         </div>
-                        <div className="h-[140px] w-full min-h-0 min-w-0">
+                        <div className="h-[140px] w-full min-h-[140px] min-w-0">
                           {stats.attendanceChartData.length > 0 && isDashboardReady ? (
                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
                               <BarChart data={stats.attendanceChartData}>
@@ -1478,10 +2440,10 @@ export default function App() {
                           <h3 className="font-bold text-slate-900">Distribuição por Categoria</h3>
                         </div>
                       </div>
-                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative min-h-0 min-w-0">
-                        <div className="w-full h-full flex-1 min-w-0">
+                      <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative min-h-[300px] min-w-0">
+                        <div className="w-full h-full flex-1 min-w-0 min-h-[300px]">
                           {isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={0} debounce={100}>
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
                               <PieChart>
                                 <Pie
                                   data={stats.pieData}
@@ -3069,6 +4031,399 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === "kids" && (
+            <motion.div
+              key="kids-tab"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Kids Sub-tabs */}
+              <div className="flex bg-white/50 backdrop-blur-sm p-1 rounded-2xl border border-slate-200/60 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'checkin', label: 'Check-in', icon: QrCode },
+                  { id: 'children', label: 'Crianças', icon: Baby },
+                  { id: 'guardians', label: 'Responsáveis', icon: Users },
+                  { id: 'classrooms', label: 'Salas', icon: Home },
+                  { id: 'reports', label: 'Relatórios', icon: FileText }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setKidsTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                      kidsTab === tab.id 
+                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" 
+                        : "text-slate-500 hover:bg-white hover:text-indigo-600"
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Kids Tab Content */}
+              {kidsTab === 'checkin' && (
+                <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                  <div className="flex flex-col md:flex-row gap-8">
+                    {/* Left: QR Scanner / Selection */}
+                    <div className="flex-1 space-y-6">
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                          <QrCode className="w-5 h-5 text-indigo-600" />
+                          Realizar Check-in
+                        </h3>
+                        <p className="text-sm text-slate-500">Selecione o responsável ou escaneie o QR Code do app.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="relative">
+                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Buscar responsável por nome ou telefone..."
+                            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                            value={kidsSearchTerm}
+                            onChange={(e) => setKidsSearchTerm(e.target.value)}
+                          />
+                        </div>
+
+                        {kidsSearchTerm && (
+                          <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
+                            {guardians
+                              .filter(g => g.name.toLowerCase().includes(kidsSearchTerm.toLowerCase()) || g.phone.includes(kidsSearchTerm))
+                              .map(g => (
+                                <button
+                                  key={g.id}
+                                  onClick={() => {
+                                    setSelectedGuardian(g);
+                                    setKidsSearchTerm("");
+                                    setSelectedChildren([]);
+                                  }}
+                                  className="w-full px-4 py-3 text-left hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-3"
+                                >
+                                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                    {g.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-900">{g.name}</p>
+                                    <p className="text-[10px] text-slate-500">{g.phone}</p>
+                                  </div>
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedGuardian && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-6 bg-indigo-50/50 rounded-3xl border border-indigo-100 space-y-6"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-200">
+                                {selectedGuardian.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-slate-900">{selectedGuardian.name}</p>
+                                <p className="text-xs text-indigo-600 font-medium">{selectedGuardian.phone}</p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => setSelectedGuardian(null)}
+                              className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selecione a Sala:</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {rooms.map(room => (
+                                <button
+                                  key={room.id}
+                                  onClick={() => setSelectedRoomId(room.id)}
+                                  className={`px-3 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${
+                                    selectedRoomId === room.id
+                                      ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                                      : "bg-white text-slate-500 border-slate-200 hover:border-indigo-300"
+                                  }`}
+                                >
+                                  {room.name}
+                                </button>
+                              ))}
+                              {rooms.length === 0 && (
+                                <p className="col-span-full text-[10px] text-rose-500 font-bold italic">Nenhuma sala cadastrada. Cadastre na aba "Salas".</p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selecione as crianças:</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {children
+                                .filter(c => c.guardianId === selectedGuardian.id)
+                                .map(child => (
+                                  <button
+                                    key={child.id}
+                                    onClick={() => {
+                                      if (selectedChildren.includes(child.id)) {
+                                        setSelectedChildren(selectedChildren.filter(id => id !== child.id));
+                                      } else {
+                                        setSelectedChildren([...selectedChildren, child.id]);
+                                      }
+                                    }}
+                                    className={`p-4 rounded-2xl border transition-all text-left flex items-center gap-3 ${
+                                      selectedChildren.includes(child.id)
+                                        ? "bg-white border-indigo-600 shadow-md ring-2 ring-indigo-600/10"
+                                        : "bg-white/50 border-slate-200 hover:border-indigo-300"
+                                    }`}
+                                  >
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                                      selectedChildren.includes(child.id) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                                    }`}>
+                                      <Baby className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                      <p className={`text-sm font-bold ${selectedChildren.includes(child.id) ? "text-indigo-600" : "text-slate-700"}`}>
+                                        {child.name}
+                                      </p>
+                                      {child.allergies && (
+                                        <p className="text-[9px] text-rose-500 font-bold uppercase tracking-tighter mt-0.5">⚠️ {child.allergies}</p>
+                                      )}
+                                    </div>
+                                  </button>
+                                ))}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={handleCheckIn}
+                            disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
+                            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+                          >
+                            {submitting ? (
+                              <RefreshCw className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <>
+                                <Printer className="w-5 h-5" />
+                                {selectedRoomId ? "Confirmar Check-in e Imprimir" : "Selecione uma Sala"}
+                              </>
+                            )}
+                          </button>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Right: QR Code for App */}
+                    <div className="w-full md:w-64 flex flex-col items-center justify-center p-8 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
+                      <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
+                        <QRCodeCanvas 
+                          value={`${window.location.origin}/?mode=mobile-checkin&church=${encodeURIComponent(churchName)}`}
+                          size={160}
+                          level="H"
+                          includeMargin={true}
+                        />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">QR Code para Check-in via App</p>
+                      <p className="text-[9px] text-slate-400 mt-2 text-center">Escaneie para fazer o check-in do seu celular</p>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {kidsTab === 'children' && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">Gerenciar Crianças</h3>
+                    <button
+                      onClick={() => setShowAddChildModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Nova Criança
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {children.map(child => (
+                      <div key={child.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            <Baby className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900">{child.name}</h4>
+                            <p className="text-xs text-slate-500">Nasc: {new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                            <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-1">
+                              Resp: {guardians.find(g => g.id === child.guardianId)?.name || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                        {child.allergies && (
+                          <div className="mt-4 p-3 bg-rose-50 rounded-xl border border-rose-100">
+                            <p className="text-[10px] text-rose-600 font-bold uppercase tracking-widest flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Alergias
+                            </p>
+                            <p className="text-xs text-rose-700 mt-1">{child.allergies}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {kidsTab === 'guardians' && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">Gerenciar Responsáveis</h3>
+                    <button
+                      onClick={() => setShowAddGuardianModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Novo Responsável
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {guardians.map(guardian => (
+                      <div key={guardian.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
+                            <User className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900">{guardian.name}</h4>
+                            <p className="text-xs text-slate-500">{guardian.phone}</p>
+                            <p className="text-xs text-slate-500">{guardian.email}</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                            {children.filter(c => c.guardianId === guardian.id).length} Criança(s)
+                          </span>
+                          <button className="text-indigo-600 hover:text-indigo-700 text-xs font-bold uppercase tracking-widest">Ver Detalhes</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {kidsTab === 'classrooms' && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">Gerenciar Salas</h3>
+                    <button
+                      onClick={() => setShowAddRoomModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Nova Sala
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {rooms.map(room => {
+                      const childrenInRoom = kidsCheckIns.filter(ci => ci.room === room.name && ci.status === 'checked-in').length;
+                      return (
+                        <div key={room.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                                <Home className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-900">{room.name}</h4>
+                                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-widest">
+                                  {room.minAge !== undefined && room.maxAge !== undefined 
+                                    ? `${room.minAge}-${room.maxAge} anos` 
+                                    : 'Faixa etária não definida'}
+                                  {room.teacher && ` • Prof: ${room.teacher}`}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xl font-black text-indigo-600">{childrenInRoom}</span>
+                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Crianças</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all ${childrenInRoom >= (room.capacity || 20) ? 'bg-rose-500' : 'bg-indigo-500'}`}
+                                style={{ width: `${Math.min(100, (childrenInRoom / (room.capacity || 20)) * 100)}%` }}
+                              />
+                            </div>
+                            <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                              <span>Capacidade: {room.capacity || 20}</span>
+                              <span>{Math.round((childrenInRoom / (room.capacity || 20)) * 100)}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {kidsTab === 'reports' && (
+                <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-lg font-bold text-slate-900">Histórico de Check-ins</h3>
+                    <div className="flex items-center gap-2">
+                      <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
+                        <Download className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data/Hora</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Criança</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sala</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {kidsCheckIns.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(checkin => {
+                          const child = children.find(c => c.id === checkin.childId);
+                          const guardian = guardians.find(g => g.id === checkin.guardianId);
+                          return (
+                            <tr key={checkin.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                              <td className="px-4 py-4">
+                                <p className="text-sm font-bold text-slate-900">{new Date(checkin.date).toLocaleDateString('pt-BR')}</p>
+                                <p className="text-[10px] text-slate-500">{checkin.time}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-sm font-medium text-slate-700">{child?.name || 'N/A'}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <p className="text-sm font-medium text-slate-700">{guardian?.name || 'N/A'}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold uppercase">{checkin.room}</span>
+                              </td>
+                              <td className="px-4 py-4 text-right">
+                                <span className="px-2 py-1 bg-emerald-100 text-emerald-600 rounded-lg text-[10px] font-bold uppercase">Presente</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+            </motion.div>
+          )}
+
           {activeTab === "settings" && (
             <motion.div
               key="settings-tab"
@@ -3269,6 +4624,267 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* Add Guardian Modal */}
+      <AnimatePresence>
+        {showAddGuardianModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddGuardianModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Novo Responsável</h3>
+                <button onClick={() => setShowAddGuardianModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleAddGuardian({
+                  name: formData.get('name') as string,
+                  phone: formData.get('phone') as string,
+                  email: formData.get('email') as string,
+                });
+              }} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                  <input
+                    name="name"
+                    required
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="Ex: João Silva"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone / WhatsApp</label>
+                  <input
+                    name="phone"
+                    required
+                    type="tel"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                  <input
+                    name="email"
+                    type="email"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Salvar Responsável"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Child Modal */}
+      <AnimatePresence>
+        {showAddRoomModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddRoomModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Nova Sala</h3>
+                <button onClick={() => setShowAddRoomModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleAddRoom({
+                  name: formData.get('name') as string,
+                  teacher: formData.get('teacher') as string,
+                  capacity: parseInt(formData.get('capacity') as string) || 0,
+                  minAge: parseInt(formData.get('minAge') as string) || 0,
+                  maxAge: parseInt(formData.get('maxAge') as string) || 0,
+                });
+              }} className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Sala</label>
+                    <input
+                      name="name"
+                      required
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="Ex: Berçário"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Professor(a)</label>
+                    <input
+                      name="teacher"
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="Nome do professor"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Capacidade</label>
+                    <input
+                      name="capacity"
+                      type="number"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Idade Mín.</label>
+                    <input
+                      name="minAge"
+                      type="number"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Idade Máx.</label>
+                    <input
+                      name="maxAge"
+                      type="number"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="12"
+                    />
+                  </div>
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Salvar Sala"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showAddChildModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddChildModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Nova Criança</h3>
+                <button onClick={() => setShowAddChildModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleAddChild({
+                  name: formData.get('name') as string,
+                  birthDate: formData.get('birthDate') as string,
+                  guardianId: formData.get('guardianId') as string,
+                  allergies: formData.get('allergies') as string,
+                  notes: formData.get('notes') as string,
+                });
+              }} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                  <input
+                    name="name"
+                    required
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="Nome completo"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                    <input
+                      name="birthDate"
+                      required
+                      type="date"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsável</label>
+                    <select
+                      name="guardianId"
+                      required
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    >
+                      <option value="">Selecione...</option>
+                      {guardians.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
+                  <input
+                    name="allergies"
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="Nenhuma"
+                  />
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Salvar Criança"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* PIN Modal with Visual Keypad */}
       <AnimatePresence>
         {showPinModal && (
@@ -3397,6 +5013,16 @@ export default function App() {
           >
             <Users className={`w-6 h-6 ${activeTab === "attendance" ? "fill-indigo-50" : ""}`} />
             <span className="text-[10px] font-bold uppercase tracking-tighter">Pessoas</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("kids")}
+            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+              activeTab === "kids" ? "text-indigo-600 scale-110" : "text-slate-400"
+            }`}
+          >
+            <Baby className={`w-6 h-6 ${activeTab === "kids" ? "fill-indigo-50" : ""}`} />
+            <span className="text-[10px] font-bold uppercase tracking-tighter">Kids</span>
           </button>
 
           <button

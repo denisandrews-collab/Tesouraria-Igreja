@@ -55,10 +55,13 @@ import {
   Frown,
   Meh,
   UserPlus,
+  ArrowLeft,
+  ArrowRight,
   Check,
   Mail,
   ChevronRight,
-  LogOut
+  LogOut,
+  Edit
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
@@ -140,6 +143,8 @@ interface Guardian {
   phone: string;
   email?: string;
   photo?: string;
+  isTeacher?: boolean;
+  assignedRoomIds?: string[];
   created_at: string;
 }
 
@@ -249,6 +254,12 @@ export default function App() {
   const [showAddGuardianModal, setShowAddGuardianModal] = useState(false);
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
+  const [showEditGuardianModal, setShowEditGuardianModal] = useState(false);
+  const [showEditChildModal, setShowEditChildModal] = useState(false);
+  const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
+  const [editingChild, setEditingChild] = useState<Child | null>(null);
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
@@ -274,7 +285,7 @@ export default function App() {
   const [isRoomLeader, setIsRoomLeader] = useState(false);
   const [selectedRoomForLeader, setSelectedRoomForLeader] = useState<Room | null>(null);
   const [mobilePhone, setMobilePhone] = useState("");
-  const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success">("phone");
+  const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success" | "registration-guardian" | "registration-children">("phone");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
 
@@ -1096,6 +1107,60 @@ export default function App() {
     } catch (error) {
       console.error("Error adding room:", error);
       addNotification("error", "Erro ao adicionar sala.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateGuardian = async (id: string, guardianData: Partial<Guardian>) => {
+    try {
+      setSubmitting(true);
+      if (db && isFirebaseEnabled) {
+        await updateDoc(doc(db, "guardians", id), guardianData);
+        fetchEntries();
+        setShowEditGuardianModal(false);
+        setEditingGuardian(null);
+        addNotification("success", "Responsável atualizado com sucesso.");
+      }
+    } catch (error) {
+      console.error("Error updating guardian:", error);
+      addNotification("error", "Erro ao atualizar responsável.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateChild = async (id: string, childData: Partial<Child>) => {
+    try {
+      setSubmitting(true);
+      if (db && isFirebaseEnabled) {
+        await updateDoc(doc(db, "children", id), childData);
+        fetchEntries();
+        setShowEditChildModal(false);
+        setEditingChild(null);
+        addNotification("success", "Criança atualizada com sucesso.");
+      }
+    } catch (error) {
+      console.error("Error updating child:", error);
+      addNotification("error", "Erro ao atualizar criança.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateRoom = async (id: string, roomData: Partial<Room>) => {
+    try {
+      setSubmitting(true);
+      if (db && isFirebaseEnabled) {
+        await updateDoc(doc(db, "rooms", id), roomData);
+        fetchEntries();
+        setShowEditRoomModal(false);
+        setEditingRoom(null);
+        addNotification("success", "Sala atualizada com sucesso.");
+      }
+    } catch (error) {
+      console.error("Error updating room:", error);
+      addNotification("error", "Erro ao atualizar sala.");
     } finally {
       setSubmitting(false);
     }
@@ -2012,13 +2077,135 @@ export default function App() {
                     setSelectedGuardian(guardian);
                     setMobileStep("selection");
                   } else {
-                    addNotification("error", "Responsável não encontrado. Procure a recepção.");
+                    setMobileStep("registration-guardian");
                   }
                 }}
                 disabled={!mobilePhone}
                 className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
               >
-                Continuar
+                {guardian ? "Continuar" : "Não encontrei meu cadastro. Cadastrar agora!"}
+              </button>
+            </div>
+          )}
+
+          {mobileStep === "registration-guardian" && (
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const guardianId = await handleAddGuardian({
+                name: formData.get('name') as string,
+                phone: formData.get('phone') as string,
+                email: formData.get('email') as string,
+              });
+              if (guardianId) {
+                const newGuardian = guardians.find(g => g.id === guardianId) || {
+                  id: guardianId,
+                  name: formData.get('name') as string,
+                  phone: formData.get('phone') as string,
+                  email: formData.get('email') as string,
+                  created_at: new Date().toISOString()
+                };
+                setSelectedGuardian(newGuardian);
+                setMobileStep("registration-children");
+              }
+            }} className="space-y-6">
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-slate-800">Novo Cadastro</h2>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Passo 1: Responsável</p>
+              </div>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                  <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
+                  <input name="phone" required type="tel" defaultValue={mobilePhone} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                  <input name="email" type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <button 
+                  type="button"
+                  onClick={() => setMobileStep("phone")}
+                  className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <button type="submit" disabled={submitting} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50">
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Próximo Passo"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {mobileStep === "registration-children" && selectedGuardian && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <button 
+                  onClick={() => setMobileStep("registration-guardian")}
+                  className="p-2 text-slate-400 hover:text-slate-600 transition-all"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div className="text-center flex-1 pr-8">
+                  <h2 className="text-xl font-bold text-slate-800">Novo Cadastro</h2>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Passo 2: Crianças</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
+                  <div key={child.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{child.name}</p>
+                      <p className="text-[10px] text-slate-400">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                    </div>
+                    <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                      <Check className="w-4 h-4 text-emerald-600" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                await handleAddChild({
+                  name: formData.get('name') as string,
+                  birthDate: formData.get('birthDate') as string,
+                  guardianId: selectedGuardian.id,
+                  allergies: formData.get('allergies') as string,
+                  notes: formData.get('notes') as string,
+                });
+                e.currentTarget.reset();
+              }} className="space-y-4 pt-4 border-t border-slate-100">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adicionar Criança</p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                  <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                  <input name="birthDate" required type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Observações</label>
+                  <input name="allergies" placeholder="Ex: Alergia a amendoim" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                </div>
+                <button type="submit" disabled={submitting} className="w-full py-3 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50">
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Adicionar Criança"}
+                </button>
+              </form>
+
+              <button 
+                onClick={() => setMobileStep("selection")}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+              >
+                Finalizar e Ir para Check-in
               </button>
             </div>
           )}
@@ -4250,7 +4437,18 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {children.map(child => (
-                      <div key={child.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
+                      <div key={child.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group relative">
+                        {userRole === "master" && (
+                          <button
+                            onClick={() => {
+                              setEditingChild(child);
+                              setShowEditChildModal(true);
+                            }}
+                            className="absolute top-4 right-4 p-2 bg-slate-50 text-slate-400 rounded-xl opacity-0 group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                             <Baby className="w-7 h-7" />
@@ -4291,7 +4489,18 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {guardians.map(guardian => (
-                      <div key={guardian.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                      <div key={guardian.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative group">
+                        {userRole === "master" && (
+                          <button
+                            onClick={() => {
+                              setEditingGuardian(guardian);
+                              setShowEditGuardianModal(true);
+                            }}
+                            className="absolute top-4 right-4 p-2 bg-slate-50 text-slate-400 rounded-xl opacity-0 group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
                             <User className="w-7 h-7" />
@@ -4299,7 +4508,11 @@ export default function App() {
                           <div>
                             <h4 className="font-bold text-slate-900">{guardian.name}</h4>
                             <p className="text-xs text-slate-500">{guardian.phone}</p>
-                            <p className="text-xs text-slate-500">{guardian.email}</p>
+                            {guardian.isTeacher && (
+                              <div className="mt-1 flex items-center gap-1">
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-full uppercase tracking-widest">Professor(a)</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
@@ -4651,10 +4864,13 @@ export default function App() {
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
+                const assignedRoomIds = Array.from(formData.getAll('assignedRooms')) as string[];
                 handleAddGuardian({
                   name: formData.get('name') as string,
                   phone: formData.get('phone') as string,
                   email: formData.get('email') as string,
+                  isTeacher: formData.get('isTeacher') === 'on',
+                  assignedRoomIds: assignedRoomIds,
                 });
               }} className="space-y-6">
                 <div className="space-y-2">
@@ -4686,6 +4902,39 @@ export default function App() {
                     placeholder="email@exemplo.com"
                   />
                 </div>
+
+                {userRole === "master" && (
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Designar como Professor(a)</p>
+                          <p className="text-[10px] text-slate-400 font-medium">Permite vincular a turmas específicas</p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="isTeacher" className="sr-only peer" />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Vincular a Turmas</label>
+                      <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
+                        {rooms.map(room => (
+                          <label key={room.id} className="flex items-center gap-2 p-2 hover:bg-white rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-100">
+                            <input type="checkbox" name="assignedRooms" value={room.id} className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                            <span className="text-xs font-medium text-slate-700">{room.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   disabled={submitting}
                   type="submit"
@@ -4884,6 +5133,309 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+        {showEditGuardianModal && editingGuardian && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEditGuardianModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Editar Responsável</h3>
+                <button onClick={() => setShowEditGuardianModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const assignedRoomIds = Array.from(formData.getAll('assignedRooms')) as string[];
+                handleUpdateGuardian(editingGuardian.id, {
+                  name: formData.get('name') as string,
+                  phone: formData.get('phone') as string,
+                  email: formData.get('email') as string,
+                  isTeacher: formData.get('isTeacher') === 'on',
+                  assignedRoomIds: assignedRoomIds,
+                });
+              }} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                  <input
+                    name="name"
+                    required
+                    defaultValue={editingGuardian.name}
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone</label>
+                    <input
+                      name="phone"
+                      required
+                      defaultValue={editingGuardian.phone}
+                      type="tel"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                    <input
+                      name="email"
+                      defaultValue={editingGuardian.email}
+                      type="email"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">Designar como Professor(a)</p>
+                        <p className="text-[10px] text-slate-400 font-medium">Permite vincular a turmas específicas</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        name="isTeacher" 
+                        className="sr-only peer" 
+                        defaultChecked={editingGuardian.isTeacher}
+                      />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Vincular a Turmas</label>
+                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
+                      {rooms.map(room => (
+                        <label key={room.id} className="flex items-center gap-2 p-2 hover:bg-white rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-100">
+                          <input 
+                            type="checkbox" 
+                            name="assignedRooms" 
+                            value={room.id} 
+                            defaultChecked={editingGuardian.assignedRoomIds?.includes(room.id)}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
+                          />
+                          <span className="text-xs font-medium text-slate-700">{room.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Atualizar Responsável"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showEditChildModal && editingChild && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEditChildModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Editar Criança</h3>
+                <button onClick={() => setShowEditChildModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleUpdateChild(editingChild.id, {
+                  name: formData.get('name') as string,
+                  birthDate: formData.get('birthDate') as string,
+                  guardianId: formData.get('guardianId') as string,
+                  allergies: formData.get('allergies') as string,
+                  notes: formData.get('notes') as string,
+                });
+              }} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                  <input
+                    name="name"
+                    required
+                    defaultValue={editingChild.name}
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                    <input
+                      name="birthDate"
+                      required
+                      defaultValue={editingChild.birthDate}
+                      type="date"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsável</label>
+                    <select
+                      name="guardianId"
+                      required
+                      defaultValue={editingChild.guardianId}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    >
+                      {guardians.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
+                  <input
+                    name="allergies"
+                    defaultValue={editingChild.allergies}
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                  />
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Atualizar Criança"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showEditRoomModal && editingRoom && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowEditRoomModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-slate-900">Editar Sala</h3>
+                <button onClick={() => setShowEditRoomModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleUpdateRoom(editingRoom.id, {
+                  name: formData.get('name') as string,
+                  teacher: formData.get('teacher') as string,
+                  capacity: parseInt(formData.get('capacity') as string) || 0,
+                  minAge: parseInt(formData.get('minAge') as string) || 0,
+                  maxAge: parseInt(formData.get('maxAge') as string) || 0,
+                });
+              }} className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Sala</label>
+                    <input
+                      name="name"
+                      required
+                      defaultValue={editingRoom.name}
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Professor(a)</label>
+                    <input
+                      name="teacher"
+                      defaultValue={editingRoom.teacher}
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Capacidade</label>
+                    <input
+                      name="capacity"
+                      type="number"
+                      defaultValue={editingRoom.capacity}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Idade Mín.</label>
+                    <input
+                      name="minAge"
+                      type="number"
+                      defaultValue={editingRoom.minAge}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Idade Máx.</label>
+                    <input
+                      name="maxAge"
+                      type="number"
+                      defaultValue={editingRoom.maxAge}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Atualizar Sala"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
 
       {/* PIN Modal with Visual Keypad */}
       <AnimatePresence>

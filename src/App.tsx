@@ -226,6 +226,113 @@ const evaluateMath = (str: string): number => {
     .reduce((acc, part) => acc + (parseInt(part) || 0), 0);
 };
 
+interface LoginScreenProps {
+  title: string;
+  isFirebaseEnabled: boolean;
+  loginEmail: string;
+  setLoginEmail: (val: string) => void;
+  loginPassword: string;
+  setLoginPassword: (val: string) => void;
+  handleLogin: (e: React.FormEvent) => void;
+  isLoggingIn: boolean;
+  setUser: (user: any) => void;
+  addNotification: (type: "success" | "error" | "info" | "warning", message: string, title?: string) => void;
+}
+
+const LoginScreen = ({ 
+  title, 
+  isFirebaseEnabled, 
+  loginEmail, 
+  setLoginEmail, 
+  loginPassword, 
+  setLoginPassword, 
+  handleLogin, 
+  isLoggingIn,
+  setUser,
+  addNotification
+}: LoginScreenProps) => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+    >
+      <div className="text-center mb-8">
+        <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+          <Lock className="w-8 h-8 text-white" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+        <p className="text-slate-500 text-sm mt-2">Faça login para continuar</p>
+        {!isFirebaseEnabled && (
+          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest mb-2">Modo de Demonstração</p>
+            <button
+              type="button"
+              onClick={() => {
+                setLoginEmail("admin@modeloalpha.com.br");
+                setLoginPassword("admin123");
+                // Trigger login manually
+                setUser({ email: "admin@modeloalpha.com.br", uid: "demo-user" } as any);
+                addNotification("success", "Acesso de demonstração liberado.");
+              }}
+              className="w-full py-2 bg-amber-200 text-amber-900 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-300 transition-all"
+            >
+              Entrar como Convidado
+            </button>
+          </div>
+        )}
+      </div>
+
+      <form onSubmit={handleLogin} className="space-y-6">
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+          <div className="relative">
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="email"
+              required
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+              placeholder="seu@email.com"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="password"
+              required
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+              placeholder="••••••••"
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={isLoggingIn}
+          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isLoggingIn ? (
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <>
+              <span>Entrar</span>
+              <ChevronRight className="w-5 h-5" />
+            </>
+          )}
+        </button>
+      </form>
+    </motion.div>
+  </div>
+);
+
 export default function App() {
   const APP_VERSION = "1.2.0-kids-ministry";
   const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance" | "kids">("dashboard");
@@ -1873,92 +1980,22 @@ export default function App() {
     setActiveTab("dashboard");
   };
 
-  const LoginScreen = ({ title }: { title: string }) => (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
-      >
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
-            <Lock className="w-8 h-8 text-white" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-          <p className="text-slate-500 text-sm mt-2">Faça login para continuar</p>
-          {!isFirebaseEnabled && (
-            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-              <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest mb-2">Modo de Demonstração</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginEmail("admin@modeloalpha.com.br");
-                  setLoginPassword("admin123");
-                  // Trigger login manually
-                  setUser({ email: "admin@modeloalpha.com.br", uid: "demo-user" } as any);
-                  addNotification("success", "Acesso de demonstração liberado.");
-                }}
-                className="w-full py-2 bg-amber-200 text-amber-900 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-300 transition-all"
-              >
-                Entrar como Convidado
-              </button>
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="email"
-                required
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                placeholder="seu@email.com"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="password"
-                required
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                placeholder="••••••••"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isLoggingIn ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <>
-                <span>Entrar</span>
-                <ChevronRight className="w-5 h-5" />
-              </>
-            )}
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  );
-
   if (isRoomLeader) {
     if (!user) {
-      return <LoginScreen title="App do Líder" />;
+      return (
+        <LoginScreen 
+          title="App do Líder" 
+          isFirebaseEnabled={isFirebaseEnabled}
+          loginEmail={loginEmail}
+          setLoginEmail={setLoginEmail}
+          loginPassword={loginPassword}
+          setLoginPassword={setLoginPassword}
+          handleLogin={handleLogin}
+          isLoggingIn={isLoggingIn}
+          setUser={setUser}
+          addNotification={addNotification}
+        />
+      );
     }
 
     const activeCheckins = kidsCheckIns.filter(c => c.status === "checked-in" && (!selectedRoomForLeader || c.room === selectedRoomForLeader.name));
@@ -2078,7 +2115,20 @@ export default function App() {
 
   if (isPublicRegistration) {
     if (!user) {
-      return <LoginScreen title="Cadastro Kids" />;
+      return (
+        <LoginScreen 
+          title="Cadastro Kids" 
+          isFirebaseEnabled={isFirebaseEnabled}
+          loginEmail={loginEmail}
+          setLoginEmail={setLoginEmail}
+          loginPassword={loginPassword}
+          setLoginPassword={setLoginPassword}
+          handleLogin={handleLogin}
+          isLoggingIn={isLoggingIn}
+          setUser={setUser}
+          addNotification={addNotification}
+        />
+      );
     }
 
     return (
@@ -2210,7 +2260,20 @@ export default function App() {
 
   if (isMobileCheckin) {
     if (!user) {
-      return <LoginScreen title="Check-in Mobile" />;
+      return (
+        <LoginScreen 
+          title="Check-in Mobile" 
+          isFirebaseEnabled={isFirebaseEnabled}
+          loginEmail={loginEmail}
+          setLoginEmail={setLoginEmail}
+          loginPassword={loginPassword}
+          setLoginPassword={setLoginPassword}
+          handleLogin={handleLogin}
+          isLoggingIn={isLoggingIn}
+          setUser={setUser}
+          addNotification={addNotification}
+        />
+      );
     }
 
     const filteredGuardians = guardians.filter(g => g.phone.includes(mobilePhone));

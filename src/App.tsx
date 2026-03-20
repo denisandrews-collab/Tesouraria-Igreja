@@ -74,6 +74,7 @@ import {
   addDoc, 
   getDocs, 
   query, 
+  where,
   orderBy, 
   updateDoc, 
   doc,
@@ -189,7 +190,7 @@ interface Room {
 interface UserProfile {
   uid: string;
   email: string;
-  role: "admin" | "leader" | "parent";
+  role: "master" | "junior" | "user";
   name?: string;
 }
 
@@ -405,7 +406,7 @@ export default function App() {
   useEffect(() => {
     if (userRole === "master" && auth) {
       const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
-        const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
+        const usersData = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile));
         setAllUsers(usersData);
       });
       return () => unsubscribe();
@@ -486,21 +487,47 @@ export default function App() {
         try {
           const profileDoc = await getDoc(doc(db, "users", firebaseUser.uid));
           if (profileDoc.exists()) {
-            setUserProfile(profileDoc.data() as UserProfile);
+            const profile = profileDoc.data() as UserProfile;
+            setUserProfile(profile);
+            // Sync userRole with profile role
+            setUserRole(profile.role);
+            localStorage.setItem("userRole", profile.role);
           } else {
-            const defaultProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || "",
-              role: "parent"
-            };
-            setUserProfile(defaultProfile);
-            await setDoc(doc(db, "users", firebaseUser.uid), defaultProfile);
+            // Check if there's a pre-registered profile for this email
+            const sanitizedEmail = (firebaseUser.email || "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+            const preDoc = await getDoc(doc(db, "users", sanitizedEmail));
+            
+            if (preDoc.exists()) {
+              const preData = preDoc.data();
+              const newProfile: UserProfile = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || "",
+                role: preData.role || "user"
+              };
+              await setDoc(doc(db, "users", firebaseUser.uid), newProfile);
+              await deleteDoc(doc(db, "users", sanitizedEmail)); // Clean up pre-doc
+              setUserProfile(newProfile);
+              setUserRole(newProfile.role);
+              localStorage.setItem("userRole", newProfile.role);
+            } else {
+              const defaultProfile: UserProfile = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || "",
+                role: "user"
+              };
+              setUserProfile(defaultProfile);
+              setUserRole("user");
+              localStorage.setItem("userRole", "user");
+              await setDoc(doc(db, "users", firebaseUser.uid), defaultProfile);
+            }
           }
         } catch (error) {
           console.error("Error fetching user profile:", error);
         }
       } else {
         setUserProfile(null);
+        setUserRole("user");
+        localStorage.setItem("userRole", "user");
       }
     });
     return () => unsubscribe();
@@ -710,6 +737,9 @@ export default function App() {
 
   const [newLocationName, setNewLocationName] = useState("");
   const [editingLocation, setEditingLocation] = useState<{ id: string | number, name: string } | null>(null);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"master" | "junior" | "user">("user");
+  const [isAddingUser, setIsAddingUser] = useState(false);
 
   const calculatorTotal = useMemo(() => {
     return Object.entries(counts).reduce((acc, [val, count]) => {
@@ -1289,6 +1319,62 @@ export default function App() {
       addNotification("error", "Não foi possível realizar o estorno.", "Erro no Servidor");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const updateUserRole = async (uid: string, newRole: "master" | "junior" | "user") => {
+    if (userRole !== "master") return;
+    try {
+      await updateDoc(doc(db, "users", uid), { role: newRole });
+      addNotification("success", "Permissão atualizada com sucesso!");
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      addNotification("error", "Erro ao atualizar permissão.");
+    }
+  };
+
+  const inviteUser = async () => {
+    if (!newUserEmail || userRole !== "master") return;
+    try {
+      setIsAddingUser(true);
+      const q = query(collection(db, "users"), where("email", "==", newUserEmail.toLowerCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        await updateDoc(doc(db, "users", userDoc.id), { role: newUserRole });
+        addNotification("success", `O usuário ${newUserEmail} já existia e teve seu poder atualizado para ${newUserRole}.`);
+      } else {
+        // Create a document with the email as the ID (sanitized)
+        const sanitizedEmail = newUserEmail.toLowerCase().replace(/[^a-z0-9]/g, "_");
+        await setDoc(doc(db, "users", sanitizedEmail), {
+          email: newUserEmail.toLowerCase(),
+          role: newUserRole,
+          is_pending: true
+        });
+        addNotification("success", `Usuário ${newUserEmail} pré-cadastrado como ${newUserRole}. Peça para ele se cadastrar com este e-mail.`);
+      }
+      setNewUserEmail("");
+    } catch (error) {
+      console.error("Error inviting user:", error);
+      addNotification("error", "Erro ao cadastrar usuário.");
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const deleteUser = async (uid: string) => {
+    if (userRole !== "master") return;
+    if (uid === user?.uid) {
+      addNotification("warning", "Você não pode se auto-excluir.");
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, "users", uid));
+      addNotification("success", "Usuário removido com sucesso!");
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      addNotification("error", "Erro ao remover usuário.");
     }
   };
 
@@ -5155,8 +5241,8 @@ export default function App() {
                             <div key={u.uid} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-indigo-100 transition-all">
                               <div className="flex items-center gap-3">
                                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs ${
-                                  u.role === "admin" ? "bg-indigo-600" : 
-                                  u.role === "leader" ? "bg-emerald-600" : "bg-slate-400"
+                                  u.role === "master" ? "bg-indigo-600" : 
+                                  u.role === "junior" ? "bg-emerald-600" : "bg-slate-400"
                                 }`}>
                                   {u.email.charAt(0).toUpperCase()}
                                 </div>
@@ -5167,7 +5253,7 @@ export default function App() {
                                     value={u.role}
                                     onChange={async (e) => {
                                       if (userRole !== "master") return;
-                                      const newRole = e.target.value as "admin" | "leader" | "parent";
+                                      const newRole = e.target.value as "master" | "junior" | "user";
                                       try {
                                         await updateDoc(doc(db, "users", u.uid), { role: newRole });
                                         addNotification("success", `Cargo de ${u.email} atualizado para ${newRole}`);
@@ -5178,9 +5264,9 @@ export default function App() {
                                     }}
                                     disabled={userRole !== "master"}
                                   >
-                                    <option value="admin">Administrador</option>
-                                    <option value="leader">Líder</option>
-                                    <option value="parent">Responsável</option>
+                                    <option value="master">Master</option>
+                                    <option value="junior">Junior</option>
+                                    <option value="user">User</option>
                                   </select>
                                 </div>
                               </div>
@@ -5281,6 +5367,97 @@ export default function App() {
                       As configurações de nome são salvas localmente no seu navegador. Os dados financeiros são armazenados de forma segura no servidor.
                     </p>
                   </div>
+
+                  {userRole === "master" && (
+                    <div className="pt-6 border-t border-slate-100 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Gerenciar Usuários e Poderes</h4>
+                        <Users className="w-4 h-4 text-slate-400" />
+                      </div>
+                      
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cadastrar Novo Usuário</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <input
+                            type="email"
+                            placeholder="E-mail da pessoa"
+                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                            value={newUserEmail}
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <select
+                              className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                              value={newUserRole}
+                              onChange={(e) => setNewUserRole(e.target.value as any)}
+                            >
+                              <option value="user">Usuário (Básico)</option>
+                              <option value="junior">Junior (Visualizador)</option>
+                              <option value="master">Master (Total)</option>
+                            </select>
+                            <button
+                              onClick={inviteUser}
+                              disabled={isAddingUser || !newUserEmail}
+                              className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50"
+                            >
+                              {isAddingUser ? "..." : "Adicionar"}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[9px] text-slate-400 leading-tight">
+                          * Se a pessoa já tiver conta, o poder será atualizado. Se não tiver, ela deve se cadastrar com este e-mail para receber o acesso.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Usuários Ativos</p>
+                        {allUsers.map(u => (
+                          <div key={u.uid || u.email} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                u.role === "master" ? "bg-emerald-100 text-emerald-600" : 
+                                u.role === "junior" ? "bg-indigo-100 text-indigo-600" : 
+                                "bg-slate-100 text-slate-600"
+                              }`}>
+                                <User className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">{u.name || "Usuário sem nome"}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">{u.email}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <select
+                                className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border outline-none transition-all ${
+                                  u.role === "master" ? "bg-emerald-50 border-emerald-100 text-emerald-600" : 
+                                  u.role === "junior" ? "bg-indigo-50 border-indigo-100 text-indigo-600" : 
+                                  "bg-slate-50 border-slate-200 text-slate-600"
+                                }`}
+                                value={u.role}
+                                onChange={(e) => updateUserRole(u.uid, e.target.value as any)}
+                                disabled={u.uid === user?.uid}
+                              >
+                                <option value="user">User</option>
+                                <option value="junior">Junior</option>
+                                <option value="master">Master</option>
+                              </select>
+                              
+                              {u.uid !== user?.uid && (
+                                <button
+                                  onClick={() => deleteUser(u.uid)}
+                                  className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
+                                  title="Remover Acesso"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {userRole === "master" && (
                     <div className="pt-6 border-t border-slate-100 space-y-4">

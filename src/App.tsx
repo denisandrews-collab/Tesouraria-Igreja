@@ -240,6 +240,7 @@ interface LoginScreenProps {
   handleRegister: (e: React.FormEvent) => void;
   handleForgotPassword: () => void;
   isLoggingIn: boolean;
+  isProcessingRegister: boolean;
   isRegistering: boolean;
   setIsRegistering: (val: boolean) => void;
   setUser: (user: any) => void;
@@ -257,6 +258,7 @@ const LoginScreen = ({
   handleRegister,
   handleForgotPassword,
   isLoggingIn,
+  isProcessingRegister,
   isRegistering,
   setIsRegistering,
   setUser,
@@ -342,10 +344,10 @@ const LoginScreen = ({
 
           <button
             type="submit"
-            disabled={isLoggingIn || isRegistering}
+            disabled={isLoggingIn || isProcessingRegister}
             className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {(isLoggingIn || isRegistering) ? (
+            {(isLoggingIn || isProcessingRegister) ? (
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
@@ -426,6 +428,7 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isProcessingRegister, setIsProcessingRegister] = useState(false);
   const [kidsSearchTerm, setKidsSearchTerm] = useState("");
   
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
@@ -523,10 +526,8 @@ export default function App() {
       
       // Safety timeout
       const timeout = setTimeout(() => {
-        if (isLoggingIn) {
-          setIsLoggingIn(false);
-          addNotification("error", "O login está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
-        }
+        setIsLoggingIn(false);
+        addNotification("error", "O login está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
       }, 15000);
 
       await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
@@ -558,15 +559,13 @@ export default function App() {
     }
 
     try {
-      setIsRegistering(true);
+      setIsProcessingRegister(true);
       console.log("Tentando cadastro para:", loginEmail);
 
       // Safety timeout
       const timeout = setTimeout(() => {
-        if (isRegistering) {
-          setIsRegistering(false);
-          addNotification("error", "O cadastro está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
-        }
+        setIsProcessingRegister(false);
+        addNotification("error", "O cadastro está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
       }, 15000);
 
       await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
@@ -574,6 +573,7 @@ export default function App() {
       addNotification("success", "Conta criada com sucesso!");
       setLoginEmail("");
       setLoginPassword("");
+      setIsRegistering(false); // Switch back to login mode on success
     } catch (error: any) {
       console.error("Registration error:", error);
       let message = "Erro ao criar conta.";
@@ -587,7 +587,7 @@ export default function App() {
       }
       addNotification("error", message);
     } finally {
-      setIsRegistering(false);
+      setIsProcessingRegister(false);
     }
   };
 
@@ -2165,6 +2165,7 @@ export default function App() {
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isProcessingRegister={isProcessingRegister}
           isRegistering={isRegistering}
           setIsRegistering={setIsRegistering}
           setUser={setUser}
@@ -2302,6 +2303,7 @@ export default function App() {
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isProcessingRegister={isProcessingRegister}
           isRegistering={isRegistering}
           setIsRegistering={setIsRegistering}
           setUser={setUser}
@@ -2451,6 +2453,7 @@ export default function App() {
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isProcessingRegister={isProcessingRegister}
           isRegistering={isRegistering}
           setIsRegistering={setIsRegistering}
           setUser={setUser}
@@ -2769,6 +2772,7 @@ export default function App() {
         handleRegister={handleRegister}
         handleForgotPassword={handleForgotPassword}
         isLoggingIn={isLoggingIn}
+        isProcessingRegister={isProcessingRegister}
         isRegistering={isRegistering}
         setIsRegistering={setIsRegistering}
         setUser={setUser}

@@ -86,6 +86,9 @@ import {
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updatePassword,
   signOut, 
   User as FirebaseUser 
 } from "firebase/auth";
@@ -234,7 +237,11 @@ interface LoginScreenProps {
   loginPassword: string;
   setLoginPassword: (val: string) => void;
   handleLogin: (e: React.FormEvent) => void;
+  handleRegister: (e: React.FormEvent) => void;
+  handleForgotPassword: () => void;
   isLoggingIn: boolean;
+  isRegistering: boolean;
+  setIsRegistering: (val: boolean) => void;
   setUser: (user: any) => void;
   addNotification: (type: "success" | "error" | "info" | "warning", message: string, title?: string) => void;
 }
@@ -247,91 +254,123 @@ const LoginScreen = ({
   loginPassword, 
   setLoginPassword, 
   handleLogin, 
+  handleRegister,
+  handleForgotPassword,
   isLoggingIn,
+  isRegistering,
+  setIsRegistering,
   setUser,
   addNotification
-}: LoginScreenProps) => (
-  <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
-    >
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
-          <Lock className="w-8 h-8 text-white" />
-        </div>
-        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-        <p className="text-slate-500 text-sm mt-2">Faça login para continuar</p>
-        {!isFirebaseEnabled && (
-          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-            <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest mb-2">Modo de Demonstração</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginEmail("admin@modeloalpha.com.br");
-                setLoginPassword("admin123");
-                // Trigger login manually
-                setUser({ email: "admin@modeloalpha.com.br", uid: "demo-user" } as any);
-                addNotification("success", "Acesso de demonstração liberado.");
-              }}
-              className="w-full py-2 bg-amber-200 text-amber-900 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-300 transition-all"
-            >
-              Entrar como Convidado
-            </button>
+}: LoginScreenProps) => {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+      >
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+            <Lock className="w-8 h-8 text-white" />
           </div>
-        )}
-      </div>
-
-      <form onSubmit={handleLogin} className="space-y-6">
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
-          <div className="relative">
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="email"
-              required
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-              placeholder="seu@email.com"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
-          <div className="relative">
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="password"
-              required
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-              placeholder="••••••••"
-            />
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={isLoggingIn}
-          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {isLoggingIn ? (
-            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <>
-              <span>Entrar</span>
-              <ChevronRight className="w-5 h-5" />
-            </>
+          <h2 className="text-2xl font-bold text-slate-900">{!isRegistering ? title : "Criar Conta"}</h2>
+          <p className="text-slate-500 text-sm mt-2">
+            {!isRegistering ? "Faça login para continuar" : "Preencha os dados para se cadastrar"}
+          </p>
+          {!isFirebaseEnabled && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+              <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest mb-2">Modo de Demonstração</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail("admin@modeloalpha.com.br");
+                  setLoginPassword("admin123");
+                  // Trigger login manually
+                  setUser({ email: "admin@modeloalpha.com.br", uid: "demo-user" } as any);
+                  addNotification("success", "Acesso de demonstração liberado.");
+                }}
+                className="w-full py-2 bg-amber-200 text-amber-900 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-300 transition-all"
+              >
+                Entrar como Convidado
+              </button>
+            </div>
           )}
-        </button>
-      </form>
-    </motion.div>
-  </div>
-);
+        </div>
+
+        <form onSubmit={!isRegistering ? handleLogin : handleRegister} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                placeholder="seu@email.com"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="password"
+                required
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          {!isRegistering && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-colors"
+              >
+                Esqueci minha senha
+              </button>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoggingIn || isRegistering}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {(isLoggingIn || isRegistering) ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                <span>{!isRegistering ? "Entrar" : "Cadastrar"}</span>
+                <ChevronRight className="w-5 h-5" />
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="mt-8 pt-8 border-t border-slate-100 text-center">
+          <button
+            type="button"
+            onClick={() => setIsRegistering(!isRegistering)}
+            className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+          >
+            {!isRegistering 
+              ? "Não tem uma conta? Cadastre-se agora" 
+              : "Já tem uma conta? Faça login"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
 
 export default function App() {
   const APP_VERSION = "1.2.0-kids-ministry";
@@ -376,6 +415,8 @@ export default function App() {
   const [showEditGuardianModal, setShowEditGuardianModal] = useState(false);
   const [showEditChildModal, setShowEditChildModal] = useState(false);
   const [showEditRoomModal, setShowEditRoomModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState("");
   const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
   const [editingChild, setEditingChild] = useState<Child | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
@@ -384,6 +425,7 @@ export default function App() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [kidsSearchTerm, setKidsSearchTerm] = useState("");
   
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
@@ -476,6 +518,60 @@ export default function App() {
     }
   };
 
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isFirebaseEnabled || !auth) {
+      addNotification("error", "Firebase não configurado para cadastro.");
+      return;
+    }
+
+    try {
+      setIsRegistering(true);
+      await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+      addNotification("success", "Conta criada com sucesso!");
+      setLoginEmail("");
+      setLoginPassword("");
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      let message = "Erro ao criar conta.";
+      if (error.code === "auth/email-already-in-use") message = "Este e-mail já está em uso.";
+      if (error.code === "auth/weak-password") message = "A senha é muito fraca.";
+      if (error.code === "auth/configuration-not-found") {
+        message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
+      }
+      addNotification("error", message);
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!loginEmail) {
+      addNotification("warning", "Por favor, insira seu e-mail para recuperar a senha.");
+      return;
+    }
+    if (!isFirebaseEnabled || !auth) {
+      addNotification("error", "Firebase não configurado.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, loginEmail);
+      addNotification("success", "E-mail de recuperação enviado!");
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      let message = "Erro ao enviar e-mail de recuperação.";
+      if (error.code === "auth/configuration-not-found") {
+        message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
+      } else if (error.code === "auth/user-not-found") {
+        message = "Usuário não encontrado.";
+      } else if (error.code === "auth/invalid-email") {
+        message = "E-mail inválido.";
+      }
+      addNotification("error", message);
+    }
+  };
+
   const handleLogout = async () => {
     if (!auth) return;
     try {
@@ -483,6 +579,33 @@ export default function App() {
       addNotification("info", "Você saiu do sistema.");
     } catch (error) {
       console.error("Logout error:", error);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !auth) return;
+    if (newPasswordInput.length < 6) {
+      addNotification("warning", "A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await updatePassword(user, newPasswordInput);
+      addNotification("success", "Senha alterada com sucesso!");
+      setShowChangePasswordModal(false);
+      setNewPasswordInput("");
+    } catch (error: any) {
+      console.error("Change password error:", error);
+      if (error.code === "auth/requires-recent-login") {
+        addNotification("error", "Para sua segurança, você precisa fazer login novamente antes de alterar a senha.");
+        await signOut(auth);
+      } else {
+        addNotification("error", "Erro ao alterar senha. Verifique os requisitos de senha.");
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
   const [serverFirebaseEnabled, setServerFirebaseEnabled] = useState(false);
@@ -1991,7 +2114,11 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleRegister={handleRegister}
+          handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isRegistering={isRegistering}
+          setIsRegistering={setIsRegistering}
           setUser={setUser}
           addNotification={addNotification}
         />
@@ -2124,7 +2251,11 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleRegister={handleRegister}
+          handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isRegistering={isRegistering}
+          setIsRegistering={setIsRegistering}
           setUser={setUser}
           addNotification={addNotification}
         />
@@ -2269,7 +2400,11 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleRegister={handleRegister}
+          handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
+          isRegistering={isRegistering}
+          setIsRegistering={setIsRegistering}
           setUser={setUser}
           addNotification={addNotification}
         />
@@ -2570,6 +2705,27 @@ export default function App() {
           )}
         </motion.div>
       </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <LoginScreen 
+        title={churchName} 
+        isFirebaseEnabled={isFirebaseEnabled}
+        loginEmail={loginEmail}
+        setLoginEmail={setLoginEmail}
+        loginPassword={loginPassword}
+        setLoginPassword={setLoginPassword}
+        handleLogin={handleLogin}
+        handleRegister={handleRegister}
+        handleForgotPassword={handleForgotPassword}
+        isLoggingIn={isLoggingIn}
+        isRegistering={isRegistering}
+        setIsRegistering={setIsRegistering}
+        setUser={setUser}
+        addNotification={addNotification}
+      />
     );
   }
 
@@ -5169,43 +5325,61 @@ export default function App() {
 
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Segurança e Acesso</h4>
-                    {userRole === "master" || userRole === "junior" ? (
-                      <div className={`p-4 rounded-2xl border flex items-center justify-between ${userRole === "master" ? "bg-emerald-50 border-emerald-100" : "bg-indigo-50 border-indigo-100"}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${userRole === "master" ? "bg-emerald-100" : "bg-indigo-100"}`}>
-                            {userRole === "master" ? <Unlock className="w-5 h-5 text-emerald-600" /> : <Shield className="w-5 h-5 text-indigo-600" />}
-                          </div>
-                          <div>
-                            <p className={`text-sm font-bold ${userRole === "master" ? "text-emerald-900" : "text-indigo-900"}`}>Modo {userRole === "master" ? "Master" : "Junior"} Ativo</p>
-                            <p className={`text-[10px] font-medium ${userRole === "master" ? "text-emerald-600" : "text-indigo-600"}`}>
-                              {userRole === "master" ? "Você tem acesso total ao sistema." : "Você pode visualizar saldos e histórico."}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={handleLogoutMaster}
-                          className={`px-4 py-2 bg-white border rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${userRole === "master" ? "text-emerald-600 border-emerald-200 hover:bg-emerald-100" : "text-indigo-600 border-indigo-200 hover:bg-indigo-100"}`}
-                        >
-                          Sair
-                        </button>
-                      </div>
-                    ) : (
+                    <div className="space-y-4">
                       <button 
-                        onClick={() => setShowPinModal(true)}
+                        onClick={() => setShowChangePasswordModal(true)}
                         className="w-full bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-                            <Lock className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" />
+                            <RefreshCw className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" />
                           </div>
                           <div className="text-left">
-                            <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-900">Ativar Modo Master</p>
-                            <p className="text-[10px] text-slate-400 font-medium">Libera saldos, gráficos e histórico.</p>
+                            <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-900">Alterar Minha Senha</p>
+                            <p className="text-[10px] text-slate-400 font-medium">Atualize sua senha de acesso.</p>
                           </div>
                         </div>
-                        <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1" />
+                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1" />
                       </button>
-                    )}
+
+                      {userRole === "master" || userRole === "junior" ? (
+                        <div className={`p-4 rounded-2xl border flex items-center justify-between ${userRole === "master" ? "bg-emerald-50 border-emerald-100" : "bg-indigo-50 border-indigo-100"}`}>
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${userRole === "master" ? "bg-emerald-100" : "bg-indigo-100"}`}>
+                              {userRole === "master" ? <Unlock className="w-5 h-5 text-emerald-600" /> : <Shield className="w-5 h-5 text-indigo-600" />}
+                            </div>
+                            <div>
+                              <p className={`text-sm font-bold ${userRole === "master" ? "text-emerald-900" : "text-indigo-900"}`}>Modo {userRole === "master" ? "Master" : "Junior"} Ativo</p>
+                              <p className={`text-[10px] font-medium ${userRole === "master" ? "text-emerald-600" : "text-indigo-600"}`}>
+                                {userRole === "master" ? "Você tem acesso total ao sistema." : "Você pode visualizar saldos e histórico."}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleLogoutMaster}
+                            className={`px-4 py-2 bg-white border rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${userRole === "master" ? "text-emerald-600 border-emerald-200 hover:bg-emerald-100" : "text-indigo-600 border-indigo-200 hover:bg-indigo-100"}`}
+                          >
+                            Sair
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => setShowPinModal(true)}
+                          className="w-full bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-all"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+                              <Lock className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-900">Ativar Modo Master</p>
+                              <p className="text-[10px] text-slate-400 font-medium">Libera saldos, gráficos e histórico.</p>
+                            </div>
+                          </div>
+                          <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>
@@ -6259,6 +6433,79 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Change Password Modal */}
+      <AnimatePresence>
+        {showChangePasswordModal && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !submitting && setShowChangePasswordModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <Lock className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-900">Alterar Senha</h2>
+                </div>
+                <button
+                  onClick={() => setShowChangePasswordModal(false)}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-colors text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">
+                    Nova Senha
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePasswordModal(false)}
+                    className="flex-1 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting || newPasswordInput.length < 6}
+                    className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Salvar Nova Senha"
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -61,7 +61,8 @@ import {
   Mail,
   ChevronRight,
   LogOut,
-  Edit
+  Edit,
+  Settings
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
@@ -247,10 +248,21 @@ export default function App() {
   const [children, setChildren] = useState<Child[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [kidsCheckIns, setKidsCheckIns] = useState<KidsCheckIn[]>([]);
-  const [kidsTab, setKidsTab] = useState<"checkin" | "children" | "guardians" | "classrooms" | "reports">("checkin");
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [kidsTab, setKidsTab] = useState<"checkin" | "children" | "guardians" | "classrooms" | "reports" | "settings">("checkin");
   const [selectedGuardian, setSelectedGuardian] = useState<Guardian | null>(null);
   const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
+
+  useEffect(() => {
+    if (userRole === "master" && auth) {
+      const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
+        const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
+        setAllUsers(usersData);
+      });
+      return () => unsubscribe();
+    }
+  }, [userRole, db]);
   const [showAddGuardianModal, setShowAddGuardianModal] = useState(false);
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
@@ -694,23 +706,6 @@ export default function App() {
       };
     }
   }, [activeTab]);
-
-  useEffect(() => {
-    if (locations.length > 0) {
-      const initialCounts: Record<string, { men: number; women: number; children: number }> = {};
-      locations.forEach(loc => {
-        if (!attendanceForm.counts[loc.name]) {
-          initialCounts[loc.name] = { men: 0, women: 0, children: 0 };
-        } else {
-          initialCounts[loc.name] = attendanceForm.counts[loc.name];
-        }
-      });
-      setAttendanceForm(prev => ({
-        ...prev,
-        counts: initialCounts
-      }));
-    }
-  }, [locations]);
 
   const addNotification = (type: Notification["type"], message: string, title?: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -4233,7 +4228,8 @@ export default function App() {
                   { id: 'children', label: 'Crianças', icon: Baby },
                   { id: 'guardians', label: 'Responsáveis', icon: Users },
                   { id: 'classrooms', label: 'Salas', icon: Home },
-                  { id: 'reports', label: 'Relatórios', icon: FileText }
+                  { id: 'reports', label: 'Relatórios', icon: FileText },
+                  { id: 'settings', label: 'Configurações', icon: Settings }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -4631,6 +4627,146 @@ export default function App() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </section>
+              )}
+
+              {kidsTab === 'settings' && (
+                <section className="space-y-6">
+                  <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
+                    <div className="flex items-center gap-2 mb-6">
+                      <Settings className="w-5 h-5 text-indigo-600" />
+                      <h3 className="text-lg font-bold text-slate-900">Configurações do Kids</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Quick Links */}
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Acesso Rápido</h4>
+                        <div className="grid grid-cols-1 gap-2">
+                          <button 
+                            onClick={() => setKidsTab('guardians')}
+                            className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                                <Users className="w-5 h-5" />
+                              </div>
+                              <span className="text-sm font-bold text-slate-700">Gerenciar Responsáveis</span>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                          </button>
+                          
+                          <button 
+                            onClick={() => setIsRoomLeader(true)}
+                            className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600">
+                                <Shield className="w-5 h-5" />
+                              </div>
+                              <span className="text-sm font-bold text-slate-700">Modo Líder de Sala</span>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-600 transition-colors" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Users List */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Usuários e Permissões</h4>
+                          <span className="text-[10px] font-bold text-slate-400">{allUsers.length} Total</span>
+                        </div>
+                        
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                          <input 
+                            type="text"
+                            placeholder="Buscar usuário..."
+                            className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] outline-none focus:border-indigo-500 transition-all"
+                            onChange={(e) => setKidsSearchTerm(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="space-y-2 max-h-80 overflow-y-auto no-scrollbar pr-1">
+                          {allUsers
+                            .filter(u => u.email.toLowerCase().includes(kidsSearchTerm.toLowerCase()))
+                            .map(u => (
+                            <div key={u.uid} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-indigo-100 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs ${
+                                  u.role === "admin" ? "bg-indigo-600" : 
+                                  u.role === "leader" ? "bg-emerald-600" : "bg-slate-400"
+                                }`}>
+                                  {u.email.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-slate-800 truncate max-w-[120px]">{u.email}</p>
+                                  <select 
+                                    className="text-[10px] text-slate-400 uppercase font-bold bg-transparent outline-none focus:text-indigo-600 transition-colors"
+                                    value={u.role}
+                                    onChange={async (e) => {
+                                      if (userRole !== "master") return;
+                                      const newRole = e.target.value as "admin" | "leader" | "parent";
+                                      try {
+                                        await updateDoc(doc(db, "users", u.uid), { role: newRole });
+                                        addNotification("success", `Cargo de ${u.email} atualizado para ${newRole}`);
+                                      } catch (error) {
+                                        console.error("Error updating role:", error);
+                                        addNotification("error", "Erro ao atualizar cargo.");
+                                      }
+                                    }}
+                                    disabled={userRole !== "master"}
+                                  >
+                                    <option value="admin">Administrador</option>
+                                    <option value="leader">Líder</option>
+                                    <option value="parent">Responsável</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {allUsers.length === 0 && (
+                            <p className="text-xs text-slate-400 italic">Nenhum usuário encontrado.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Permissions / Access Control */}
+                    <div className="mt-8 pt-8 border-t border-slate-100 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900">Controle de Acesso</h4>
+                          <p className="text-xs text-slate-500">Defina o que cada nível de usuário pode acessar no Kids.</p>
+                        </div>
+                        <Lock className="w-5 h-5 text-slate-300" />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {[
+                          { role: 'parent', label: 'Responsável', permissions: ['Check-in Próprio', 'Ver Próprias Crianças'] },
+                          { role: 'leader', label: 'Líder de Sala', permissions: ['Check-in Geral', 'Ver Todas Crianças', 'Relatórios'] },
+                          { role: 'master', label: 'Administrador', permissions: ['Acesso Total', 'Configurações', 'Editar Dados'] }
+                        ].map(perm => (
+                          <div key={perm.role} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">{perm.label}</span>
+                              <div className="w-2 h-2 rounded-full bg-indigo-600" />
+                            </div>
+                            <ul className="space-y-1">
+                              {perm.permissions.map((p, i) => (
+                                <li key={i} className="text-[10px] text-slate-600 flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-emerald-500" />
+                                  {p}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </section>
               )}

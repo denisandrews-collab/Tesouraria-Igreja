@@ -451,13 +451,26 @@ export default function App() {
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log("Firebase status:", isFirebaseEnabled ? "Enabled" : "Disabled");
     const params = new URLSearchParams(window.location.search);
     const mode = params.get("mode");
-    if (mode === "mobile-checkin") {
+    
+    // Parse hash-based path and parameters
+    const hash = window.location.hash;
+    const [hashPath, hashQuery] = hash.split('?');
+    const hashParams = new URLSearchParams(hashQuery);
+    
+    // Extract church name from either query or hash
+    const churchFromUrl = params.get("church") || hashParams.get("church");
+    if (churchFromUrl) {
+      setChurchName(decodeURIComponent(churchFromUrl));
+    }
+
+    if (mode === "mobile-checkin" || hashPath === "#responsaveis") {
       setIsMobileCheckin(true);
-    } else if (mode === "registration") {
+    } else if (mode === "registration" || hashPath === "#cadastro") {
       setIsPublicRegistration(true);
-    } else if (mode === "room-leader") {
+    } else if (mode === "room-leader" || hashPath === "#lider") {
       setIsRoomLeader(true);
     }
   }, []);
@@ -506,13 +519,32 @@ export default function App() {
 
     try {
       setIsLoggingIn(true);
+      console.log("Tentando login para:", loginEmail);
+      
+      // Safety timeout
+      const timeout = setTimeout(() => {
+        if (isLoggingIn) {
+          setIsLoggingIn(false);
+          addNotification("error", "O login está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
+        }
+      }, 15000);
+
       await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      clearTimeout(timeout);
       addNotification("success", "Login realizado com sucesso.");
       setLoginEmail("");
       setLoginPassword("");
     } catch (error: any) {
       console.error("Login error:", error);
-      addNotification("error", "Erro ao fazer login. Verifique suas credenciais.");
+      let message = "Erro ao fazer login. Verifique suas credenciais.";
+      if (error.code === "auth/unauthorized-domain") {
+        message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
+      } else if (error.code === "auth/configuration-not-found") {
+        message = "O provedor de E-mail/Senha não está ativado no Firebase Console.";
+      } else if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
+        message = "E-mail ou senha incorretos.";
+      }
+      addNotification("error", message);
     } finally {
       setIsLoggingIn(false);
     }
@@ -527,7 +559,18 @@ export default function App() {
 
     try {
       setIsRegistering(true);
+      console.log("Tentando cadastro para:", loginEmail);
+
+      // Safety timeout
+      const timeout = setTimeout(() => {
+        if (isRegistering) {
+          setIsRegistering(false);
+          addNotification("error", "O cadastro está demorando muito. Verifique sua conexão ou se o domínio está autorizado no Firebase.");
+        }
+      }, 15000);
+
       await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+      clearTimeout(timeout);
       addNotification("success", "Conta criada com sucesso!");
       setLoginEmail("");
       setLoginPassword("");
@@ -535,7 +578,10 @@ export default function App() {
       console.error("Registration error:", error);
       let message = "Erro ao criar conta.";
       if (error.code === "auth/email-already-in-use") message = "Este e-mail já está em uso.";
-      if (error.code === "auth/weak-password") message = "A senha é muito fraca.";
+      if (error.code === "auth/weak-password") message = "A senha é muito fraca (mínimo 6 caracteres).";
+      if (error.code === "auth/unauthorized-domain") {
+        message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
+      }
       if (error.code === "auth/configuration-not-found") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
       }
@@ -561,7 +607,9 @@ export default function App() {
     } catch (error: any) {
       console.error("Reset password error:", error);
       let message = "Erro ao enviar e-mail de recuperação.";
-      if (error.code === "auth/configuration-not-found") {
+      if (error.code === "auth/unauthorized-domain") {
+        message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
+      } else if (error.code === "auth/configuration-not-found") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
       } else if (error.code === "auth/user-not-found") {
         message = "Usuário não encontrado.";
@@ -4813,7 +4861,7 @@ export default function App() {
                     <div className="w-full md:w-64 flex flex-col items-center justify-center p-8 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
                       <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
                         <QRCodeCanvas 
-                          value={`${window.location.origin}/?mode=mobile-checkin&church=${encodeURIComponent(churchName)}`}
+                          value={`${window.location.origin}/#responsaveis?church=${encodeURIComponent(churchName)}`}
                           size={160}
                           level="H"
                           includeMargin={true}

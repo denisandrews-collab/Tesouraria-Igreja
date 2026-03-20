@@ -2521,7 +2521,7 @@ export default function App() {
                       </div>
                       <div className="h-[300px] w-full print:h-[200px] relative min-h-[300px] min-w-0">
                         {stats.chartData.length > 0 && isDashboardReady ? (
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
+                          <ResponsiveContainer key={`trend-${isDashboardReady}`} width="100%" height={300}>
                             <AreaChart data={stats.chartData}>
                               <defs>
                                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
@@ -2588,7 +2588,7 @@ export default function App() {
                         </div>
                         <div className="h-[140px] w-full min-h-[140px] min-w-0">
                           {stats.attendanceChartData.length > 0 && isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
+                            <ResponsiveContainer key={`attendance-${isDashboardReady}`} width="100%" height={140}>
                               <BarChart data={stats.attendanceChartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis 
@@ -2625,7 +2625,7 @@ export default function App() {
                       <div className="h-[300px] w-full flex flex-col md:flex-row items-center print:h-[200px] relative min-h-[300px] min-w-0">
                         <div className="w-full h-full flex-1 min-w-0 min-h-[300px]">
                           {isDashboardReady ? (
-                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={100}>
+                            <ResponsiveContainer key={`dist-${isDashboardReady}`} width="100%" height={300}>
                               <PieChart>
                                 <Pie
                                   data={stats.pieData}

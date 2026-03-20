@@ -343,7 +343,18 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth) return;
+    
+    // Fallback for demo/dev if Firebase is disabled
+    if (!isFirebaseEnabled || !auth) {
+      if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
+        setUser({ email: loginEmail, uid: "demo-user" } as any);
+        addNotification("success", "Login de demonstração realizado.");
+        return;
+      }
+      addNotification("error", "Firebase não configurado. Use admin@modeloalpha.com.br / admin123 para demonstração.");
+      return;
+    }
+
     try {
       setIsLoggingIn(true);
       await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
@@ -883,6 +894,31 @@ export default function App() {
       } else if (locations.length === 0) {
         setLocations([{ id: 'local-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
       }
+
+      // Kids Ministry Fallbacks
+      const guardiansRes = await fetch(`/api/guardians?t=${Date.now()}`);
+      if (guardiansRes.ok) {
+        const data = await guardiansRes.json();
+        if (Array.isArray(data)) setGuardians(data);
+      }
+
+      const childrenRes = await fetch(`/api/children?t=${Date.now()}`);
+      if (childrenRes.ok) {
+        const data = await childrenRes.json();
+        if (Array.isArray(data)) setChildren(data);
+      }
+
+      const roomsRes = await fetch(`/api/rooms?t=${Date.now()}`);
+      if (roomsRes.ok) {
+        const data = await roomsRes.json();
+        if (Array.isArray(data)) setRooms(data);
+      }
+
+      const checkinsRes = await fetch(`/api/kids_checkins?t=${Date.now()}`);
+      if (checkinsRes.ok) {
+        const data = await checkinsRes.json();
+        if (Array.isArray(data)) setKidsCheckIns(data);
+      }
     } catch (error: any) {
       console.error("Error fetching data:", error);
       if (locations.length === 0) {
@@ -1023,16 +1059,34 @@ export default function App() {
   const handleAddGuardian = async (guardianData: Omit<Guardian, "id" | "created_at">) => {
     try {
       setSubmitting(true);
+      const id = Math.random().toString(36).substring(2, 15);
       const newGuardian = {
         ...guardianData,
+        id,
         created_at: new Date().toISOString()
       };
       if (db && isFirebaseEnabled) {
-        const docRef = await addDoc(collection(db, "guardians"), newGuardian);
+        try {
+          const docRef = await addDoc(collection(db, "guardians"), newGuardian);
+          fetchEntries();
+          setShowAddGuardianModal(false);
+          addNotification("success", "Responsável adicionado com sucesso.");
+          return docRef.id;
+        } catch (fsError) {
+          console.error("Firestore addGuardian failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch("/api/guardians", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newGuardian)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowAddGuardianModal(false);
         addNotification("success", "Responsável adicionado com sucesso.");
-        return docRef.id;
+        return id;
       }
     } catch (error) {
       console.error("Error adding guardian:", error);
@@ -1046,16 +1100,34 @@ export default function App() {
   const handleAddChild = async (childData: Omit<Child, "id" | "created_at">) => {
     try {
       setSubmitting(true);
+      const id = Math.random().toString(36).substring(2, 15);
       const newChild = {
         ...childData,
+        id,
         created_at: new Date().toISOString()
       };
       if (db && isFirebaseEnabled) {
-        const docRef = await addDoc(collection(db, "children"), newChild);
+        try {
+          const docRef = await addDoc(collection(db, "children"), newChild);
+          fetchEntries();
+          setShowAddChildModal(false);
+          addNotification("success", "Criança adicionada com sucesso.");
+          return docRef.id;
+        } catch (fsError) {
+          console.error("Firestore addChild failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch("/api/children", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newChild)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowAddChildModal(false);
         addNotification("success", "Criança adicionada com sucesso.");
-        return docRef.id;
+        return id;
       }
     } catch (error) {
       console.error("Error adding child:", error);
@@ -1069,12 +1141,29 @@ export default function App() {
   const handleCheckOut = async (checkInId: string) => {
     try {
       setSubmitting(true);
+      const checkoutData = {
+        status: "checked-out",
+        checkoutTime: new Date().toISOString(),
+        checkedOutBy: "Room Leader"
+      };
+
       if (db && isFirebaseEnabled) {
-        await updateDoc(doc(db, "kids_checkins", checkInId), {
-          status: "checked-out",
-          checkoutTime: new Date().toISOString(),
-          checkedOutBy: "Room Leader" // Or specific leader name if we had it
-        });
+        try {
+          await updateDoc(doc(db, "kids_checkins", checkInId), checkoutData);
+          fetchEntries();
+          addNotification("success", "Check-out realizado com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore checkOut failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/kids_checkins/${checkInId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(checkoutData)
+      });
+      if (response.ok) {
         fetchEntries();
         addNotification("success", "Check-out realizado com sucesso.");
       }
@@ -1089,12 +1178,30 @@ export default function App() {
   const handleAddRoom = async (roomData: Omit<Room, "id" | "created_at">) => {
     try {
       setSubmitting(true);
+      const id = Math.random().toString(36).substring(2, 15);
       const newRoom = {
         ...roomData,
+        id,
         created_at: new Date().toISOString()
       };
       if (db && isFirebaseEnabled) {
-        await addDoc(collection(db, "rooms"), newRoom);
+        try {
+          await addDoc(collection(db, "rooms"), newRoom);
+          fetchEntries();
+          setShowAddRoomModal(false);
+          addNotification("success", "Sala adicionada com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore addRoom failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newRoom)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowAddRoomModal(false);
         addNotification("success", "Sala adicionada com sucesso.");
@@ -1111,7 +1218,24 @@ export default function App() {
     try {
       setSubmitting(true);
       if (db && isFirebaseEnabled) {
-        await updateDoc(doc(db, "guardians", id), guardianData);
+        try {
+          await updateDoc(doc(db, "guardians", id), guardianData);
+          fetchEntries();
+          setShowEditGuardianModal(false);
+          setEditingGuardian(null);
+          addNotification("success", "Responsável atualizado com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore updateGuardian failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/guardians/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(guardianData)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowEditGuardianModal(false);
         setEditingGuardian(null);
@@ -1129,7 +1253,24 @@ export default function App() {
     try {
       setSubmitting(true);
       if (db && isFirebaseEnabled) {
-        await updateDoc(doc(db, "children", id), childData);
+        try {
+          await updateDoc(doc(db, "children", id), childData);
+          fetchEntries();
+          setShowEditChildModal(false);
+          setEditingChild(null);
+          addNotification("success", "Criança atualizada com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore updateChild failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/children/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(childData)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowEditChildModal(false);
         setEditingChild(null);
@@ -1147,7 +1288,24 @@ export default function App() {
     try {
       setSubmitting(true);
       if (db && isFirebaseEnabled) {
-        await updateDoc(doc(db, "rooms", id), roomData);
+        try {
+          await updateDoc(doc(db, "rooms", id), roomData);
+          fetchEntries();
+          setShowEditRoomModal(false);
+          setEditingRoom(null);
+          addNotification("success", "Sala atualizada com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore updateRoom failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/rooms/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(roomData)
+      });
+      if (response.ok) {
         fetchEntries();
         setShowEditRoomModal(false);
         setEditingRoom(null);
@@ -1309,11 +1467,23 @@ export default function App() {
           status: "checked-in",
           created_at: new Date().toISOString()
         };
-        let checkInId = "";
+        let checkInId = Math.random().toString(36).substring(2, 15);
+        
         if (db && isFirebaseEnabled) {
-          const docRef = await addDoc(collection(db, "kids_checkins"), checkInData);
-          checkInId = docRef.id;
+          try {
+            const docRef = await addDoc(collection(db, "kids_checkins"), checkInData);
+            checkInId = docRef.id;
+          } catch (fsError) {
+            console.error("Firestore checkIn failed, falling back to API:", fsError);
+          }
         }
+        
+        // Always try to save to API as fallback or if Firebase failed
+        await fetch("/api/kids_checkins", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: checkInId, ...checkInData, roomId: roomId || "general" })
+        });
         
         // Print label for this specific child and its room
         printLabels(selectedGuardian, [child], roomName, checkInId);
@@ -1716,6 +1886,24 @@ export default function App() {
           </div>
           <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
           <p className="text-slate-500 text-sm mt-2">Faça login para continuar</p>
+          {!isFirebaseEnabled && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+              <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest mb-2">Modo de Demonstração</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail("admin@modeloalpha.com.br");
+                  setLoginPassword("admin123");
+                  // Trigger login manually
+                  setUser({ email: "admin@modeloalpha.com.br", uid: "demo-user" } as any);
+                  addNotification("success", "Acesso de demonstração liberado.");
+                }}
+                className="w-full py-2 bg-amber-200 text-amber-900 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-300 transition-all"
+              >
+                Entrar como Convidado
+              </button>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">

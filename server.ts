@@ -97,6 +97,54 @@ try {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS guardians (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS children (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      birthDate TEXT NOT NULL,
+      guardianId TEXT NOT NULL,
+      allergies TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      minAge INTEGER,
+      maxAge INTEGER,
+      teacher TEXT,
+      capacity INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS kids_checkins (
+      id TEXT PRIMARY KEY,
+      childId TEXT NOT NULL,
+      guardianId TEXT NOT NULL,
+      roomId TEXT NOT NULL,
+      room TEXT NOT NULL,
+      status TEXT NOT NULL,
+      checkInTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+      checkoutTime DATETIME,
+      checkedOutBy TEXT
+    )
+  `);
+
   // Insert default locations if they don't exist
   const defaultLocations = ["Salão Principal"];
   defaultLocations.forEach(name => {
@@ -521,6 +569,99 @@ async function startServer() {
     } catch (error) {
       console.error("Error deleting location:", error);
       res.status(500).json({ error: "Erro interno ao excluir local." });
+    }
+  });
+
+  // Kids Ministry API Routes
+  app.get("/api/guardians", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      res.json(db.prepare("SELECT * FROM guardians").all());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch guardians" });
+    }
+  });
+
+  app.post("/api/guardians", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id, name, phone, email } = req.body;
+      db.prepare("INSERT INTO guardians (id, name, phone, email) VALUES (?, ?, ?, ?)").run(id, name, phone, email);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save guardian" });
+    }
+  });
+
+  app.get("/api/children", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      res.json(db.prepare("SELECT * FROM children").all());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch children" });
+    }
+  });
+
+  app.post("/api/children", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id, name, birthDate, guardianId, allergies, notes } = req.body;
+      db.prepare("INSERT INTO children (id, name, birthDate, guardianId, allergies, notes) VALUES (?, ?, ?, ?, ?, ?)").run(id, name, birthDate, guardianId, allergies, notes);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save child" });
+    }
+  });
+
+  app.get("/api/rooms", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      res.json(db.prepare("SELECT * FROM rooms").all());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch rooms" });
+    }
+  });
+
+  app.post("/api/rooms", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id, name, minAge, maxAge, teacher, capacity } = req.body;
+      db.prepare("INSERT INTO rooms (id, name, minAge, maxAge, teacher, capacity) VALUES (?, ?, ?, ?, ?, ?)").run(id, name, minAge, maxAge, teacher, capacity);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save room" });
+    }
+  });
+
+  app.get("/api/kids_checkins", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      res.json(db.prepare("SELECT * FROM kids_checkins").all());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch checkins" });
+    }
+  });
+
+  app.post("/api/kids_checkins", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id, childId, guardianId, roomId, room, status } = req.body;
+      db.prepare("INSERT INTO kids_checkins (id, childId, guardianId, roomId, room, status) VALUES (?, ?, ?, ?, ?, ?)").run(id, childId, guardianId, roomId, room, status);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save checkin" });
+    }
+  });
+
+  app.patch("/api/kids_checkins/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      const { status, checkoutTime, checkedOutBy } = req.body;
+      db.prepare("UPDATE kids_checkins SET status = ?, checkoutTime = ?, checkedOutBy = ? WHERE id = ?").run(status, checkoutTime, checkedOutBy, id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update checkin" });
     }
   });
 

@@ -442,6 +442,7 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isProcessingRegister, setIsProcessingRegister] = useState(false);
   const [kidsSearchTerm, setKidsSearchTerm] = useState("");
+  const [familySearchTerm, setFamilySearchTerm] = useState("");
   
   const [churchName, setChurchName] = useState(() => localStorage.getItem("churchName") || "Minha Igreja");
   const [loading, setLoading] = useState(true);
@@ -6027,31 +6028,31 @@ export default function App() {
               {/* Kids Tab Content */}
               {kidsTab === 'checkin' && (
                 <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
-                  <div className="flex flex-col md:flex-row gap-8">
-                    {/* Left: QR Scanner / Selection */}
-                    <div className="flex-1 space-y-6">
-                      <div className="space-y-4">
-                        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                          <QrCode className="w-5 h-5 text-indigo-600" />
+                  <div className="space-y-8">
+                    {/* Header */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                      <div className="space-y-1">
+                        <h3 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                            <QrCode className="w-6 h-6" />
+                          </div>
                           Realizar Check-in
                         </h3>
-                        <p className="text-sm text-slate-500">Selecione o responsável ou escaneie o QR Code do app.</p>
+                        <p className="text-sm text-slate-500 font-medium">Selecione o responsável para iniciar o processo de check-in.</p>
                       </div>
 
-                      <div className="space-y-4">
-                        <div className="relative">
-                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="Buscar responsável por nome ou telefone..."
-                            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                            value={kidsSearchTerm}
-                            onChange={(e) => setKidsSearchTerm(e.target.value)}
-                          />
-                        </div>
-
+                      <div className="relative w-full md:w-96">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar responsável por nome ou telefone..."
+                          className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium shadow-sm"
+                          value={kidsSearchTerm}
+                          onChange={(e) => setKidsSearchTerm(e.target.value)}
+                        />
+                        
                         {kidsSearchTerm && (
-                          <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden max-h-80 overflow-y-auto">
                             {guardians
                               .filter(g => g.name.toLowerCase().includes(kidsSearchTerm.toLowerCase()) || g.phone.includes(kidsSearchTerm))
                               .map(g => (
@@ -6062,136 +6063,277 @@ export default function App() {
                                     setKidsSearchTerm("");
                                     setSelectedChildren([]);
                                   }}
-                                  className="w-full px-4 py-3 text-left hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-3"
+                                  className="w-full px-5 py-4 text-left hover:bg-indigo-50 transition-colors border-b border-slate-100 last:border-0 flex items-center gap-4"
                                 >
-                                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 font-bold text-sm">
                                     {g.name.charAt(0)}
                                   </div>
                                   <div>
                                     <p className="text-sm font-bold text-slate-900">{g.name}</p>
-                                    <p className="text-[10px] text-slate-500">{g.phone}</p>
+                                    <p className="text-[11px] text-slate-500 font-medium">{g.phone}</p>
                                   </div>
                                 </button>
                               ))}
+                            {guardians.filter(g => g.name.toLowerCase().includes(kidsSearchTerm.toLowerCase()) || g.phone.includes(kidsSearchTerm)).length === 0 && (
+                              <div className="px-5 py-8 text-center">
+                                <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                <p className="text-xs text-slate-400 font-medium">Nenhum responsável encontrado.</p>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
+                    </div>
 
-                      {selectedGuardian && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="p-6 bg-indigo-50/50 rounded-3xl border border-indigo-100 space-y-6"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-200">
-                                {selectedGuardian.name.charAt(0)}
+                    {selectedGuardian ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+                      >
+                        {/* Selected Guardian Info */}
+                        <div className="lg:col-span-4 space-y-6">
+                          <div className="p-8 bg-indigo-600 rounded-[2.5rem] text-white shadow-xl shadow-indigo-200 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
+                            <div className="relative space-y-6">
+                              <div className="flex items-center justify-between">
+                                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-3xl flex items-center justify-center text-2xl font-black">
+                                  {selectedGuardian.name.charAt(0)}
+                                </div>
+                                <button 
+                                  onClick={() => setSelectedGuardian(null)}
+                                  className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-slate-900">{selectedGuardian.name}</p>
-                                <p className="text-xs text-indigo-600 font-medium">{selectedGuardian.phone}</p>
+                                <h4 className="text-xl font-black tracking-tight">{selectedGuardian.name}</h4>
+                                <p className="text-indigo-100 text-sm font-medium mt-1">{selectedGuardian.phone}</p>
+                              </div>
+                              <div className="pt-4 border-t border-white/10">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-200">Status do Responsável</p>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                                  <span className="text-xs font-bold">Ativo no Sistema</span>
+                                </div>
                               </div>
                             </div>
-                            <button 
-                              onClick={() => setSelectedGuardian(null)}
-                              className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
                           </div>
 
-                          <div className="space-y-3">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selecione a Sala:</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                              {rooms.map(room => (
-                                <button
-                                  key={room.id}
-                                  onClick={() => setSelectedRoomId(room.id)}
-                                  className={`px-3 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${
-                                    selectedRoomId === room.id
-                                      ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
-                                      : "bg-white text-slate-500 border-slate-200 hover:border-indigo-300"
-                                  }`}
+                          <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-200 space-y-4">
+                            <div className="flex items-center gap-2 text-slate-400">
+                              <Info className="w-4 h-4" />
+                              <p className="text-[10px] font-bold uppercase tracking-widest">Instruções</p>
+                            </div>
+                            <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                              Selecione as crianças que estão presentes hoje. A sala será atribuída automaticamente com base na idade de cada criança.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Children Selection */}
+                        <div className="lg:col-span-8 space-y-6">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Selecione as crianças</h4>
+                              <p className="text-[10px] text-slate-400 font-medium">As salas são atribuídas automaticamente por idade.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {selectedChildren.length > 0 && (
+                                <button 
+                                  onClick={() => setSelectedChildren([])}
+                                  className="px-3 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                                 >
-                                  {room.name}
+                                  Limpar
                                 </button>
-                              ))}
-                              {rooms.length === 0 && (
-                                <p className="col-span-full text-[10px] text-rose-500 font-bold italic">Nenhuma sala cadastrada. Cadastre na aba "Salas".</p>
                               )}
+                              <button 
+                                onClick={() => {
+                                  const allChildIds = children.filter(c => c.guardianId === selectedGuardian.id).map(c => c.id);
+                                  setSelectedChildren(allChildIds);
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors"
+                              >
+                                Selecionar Todas
+                              </button>
                             </div>
                           </div>
 
-                          <div className="space-y-3">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selecione as crianças:</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              {children
-                                .filter(c => c.guardianId === selectedGuardian.id)
-                                .map(child => (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {children
+                              .filter(c => c.guardianId === selectedGuardian.id)
+                              .map(child => {
+                                const age = calculateAge(child.birthDate);
+                                const autoRoom = findRoomForAge(age);
+                                const isSelected = selectedChildren.includes(child.id);
+
+                                return (
                                   <button
                                     key={child.id}
                                     onClick={() => {
-                                      if (selectedChildren.includes(child.id)) {
+                                      if (isSelected) {
                                         setSelectedChildren(selectedChildren.filter(id => id !== child.id));
                                       } else {
                                         setSelectedChildren([...selectedChildren, child.id]);
                                       }
                                     }}
-                                    className={`p-4 rounded-2xl border transition-all text-left flex items-center gap-3 ${
-                                      selectedChildren.includes(child.id)
-                                        ? "bg-white border-indigo-600 shadow-md ring-2 ring-indigo-600/10"
-                                        : "bg-white/50 border-slate-200 hover:border-indigo-300"
+                                    className={`group relative p-5 rounded-[2rem] border transition-all text-left flex items-center gap-4 ${
+                                      isSelected
+                                        ? "bg-white border-indigo-600 shadow-xl shadow-indigo-100 ring-1 ring-indigo-600"
+                                        : "bg-white border-slate-100 hover:border-indigo-200 hover:shadow-md"
                                     }`}
                                   >
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                                      selectedChildren.includes(child.id) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
+                                      isSelected ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600"
                                     }`}>
-                                      <Baby className="w-5 h-5" />
+                                      <Baby className="w-7 h-7" />
                                     </div>
-                                    <div>
-                                      <p className={`text-sm font-bold ${selectedChildren.includes(child.id) ? "text-indigo-600" : "text-slate-700"}`}>
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-base font-black truncate ${isSelected ? "text-indigo-600" : "text-slate-900"}`}>
                                         {child.name}
                                       </p>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isSelected ? "text-indigo-400" : "text-slate-400"}`}>
+                                          {age} anos
+                                        </span>
+                                        <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest ${isSelected ? "text-indigo-500" : "text-indigo-600"}`}>
+                                          {autoRoom?.name || "Sala Geral"}
+                                        </span>
+                                      </div>
                                       {child.allergies && (
-                                        <p className="text-[9px] text-rose-500 font-bold uppercase tracking-tighter mt-0.5">⚠️ {child.allergies}</p>
+                                        <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-lg w-fit border border-rose-100">
+                                          <AlertTriangle className="w-3 h-3 text-rose-500" />
+                                          <p className="text-[9px] text-rose-600 font-bold uppercase tracking-tighter">{child.allergies}</p>
+                                        </div>
                                       )}
                                     </div>
+                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                                      isSelected ? "bg-indigo-600 border-indigo-600" : "bg-white border-slate-200"
+                                    }`}>
+                                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                                    </div>
                                   </button>
-                                ))}
-                            </div>
+                                );
+                              })}
                           </div>
 
-                          <button
-                            onClick={handleCheckIn}
-                            disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
-                            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
-                          >
-                            {submitting ? (
-                              <RefreshCw className="w-5 h-5 animate-spin" />
-                            ) : (
-                              <>
-                                <Printer className="w-5 h-5" />
-                                {selectedRoomId ? "Confirmar Check-in e Imprimir" : "Selecione uma Sala"}
-                              </>
-                            )}
-                          </button>
-                        </motion.div>
-                      )}
-                    </div>
+                          <div className="pt-6">
+                            <button
+                              onClick={handleCheckIn}
+                              disabled={selectedChildren.length === 0 || submitting}
+                              className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-2xl shadow-indigo-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-3 active:scale-[0.98]"
+                            >
+                              {submitting ? (
+                                <RefreshCw className="w-6 h-6 animate-spin" />
+                              ) : (
+                                <>
+                                  <Printer className="w-6 h-6" />
+                                  Confirmar Check-in e Imprimir
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <div className="py-20 text-center space-y-4 bg-slate-50/50 rounded-[3rem] border border-dashed border-slate-200">
+                        <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center text-slate-300 mx-auto shadow-sm border border-slate-100">
+                          <Users className="w-10 h-10" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-lg font-bold text-slate-900">Nenhum responsável selecionado</p>
+                          <p className="text-sm text-slate-500 font-medium">Use a busca acima ou o painel abaixo para começar.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                    {/* Right: QR Code for App */}
-                    <div className="w-full md:w-64 flex flex-col items-center justify-center p-8 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
-                      <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
-                        <QRCodeCanvas 
-                          value={`${window.location.origin}/#responsaveis?church=${encodeURIComponent(churchName)}`}
-                          size={160}
-                          level="H"
-                          includeMargin={true}
+                  {/* Painel de Famílias */}
+                  <div className="mt-12 pt-12 border-t border-slate-100 space-y-8">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                          <Users className="w-5 h-5 text-indigo-600" />
+                          Painel de Famílias
+                        </h3>
+                        <p className="text-xs text-slate-500 font-medium">Visualize e gerencie todos os responsáveis e seus filhos.</p>
+                      </div>
+                      <div className="relative w-full md:w-80">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por responsável ou filho..."
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                          value={familySearchTerm}
+                          onChange={(e) => setFamilySearchTerm(e.target.value)}
                         />
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">QR Code para Check-in via App</p>
-                      <p className="text-[9px] text-slate-400 mt-2 text-center">Escaneie para fazer o check-in do seu celular</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {guardians
+                        .filter(g => {
+                          const search = familySearchTerm.toLowerCase();
+                          const guardianMatch = g.name.toLowerCase().includes(search) || g.phone.includes(search);
+                          const childrenMatch = children
+                            .filter(c => c.guardianId === g.id)
+                            .some(c => c.name.toLowerCase().includes(search));
+                          return guardianMatch || childrenMatch;
+                        })
+                        .map(g => (
+                          <div key={g.id} className="bg-slate-50/50 rounded-3xl border border-slate-100 p-6 space-y-6 hover:border-indigo-200 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 font-bold text-lg shadow-sm border border-slate-100 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                  {g.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-900">{g.name}</p>
+                                  <p className="text-[10px] text-slate-500 font-medium">{g.phone}</p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => {
+                                  setSelectedGuardian(g);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                className="p-2 bg-white rounded-xl text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-slate-100"
+                                title="Selecionar para Check-in"
+                              >
+                                <QrCode className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="space-y-3">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em]">Filhos Cadastrados</p>
+                              <div className="space-y-2">
+                                {children
+                                  .filter(c => c.guardianId === g.id)
+                                  .map(child => (
+                                    <div key={child.id} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-100/50 shadow-sm">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400">
+                                          <Baby className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-slate-700">{child.name}</p>
+                                          <p className="text-[9px] text-slate-400 font-medium">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                                        </div>
+                                      </div>
+                                      {child.allergies && (
+                                        <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" title={`Alergia: ${child.allergies}`} />
+                                      )}
+                                    </div>
+                                  ))}
+                                {children.filter(c => c.guardianId === g.id).length === 0 && (
+                                  <p className="text-[10px] text-slate-400 italic font-medium">Nenhum filho cadastrado.</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                     </div>
                   </div>
                 </section>
@@ -6417,7 +6559,26 @@ export default function App() {
                       <h3 className="text-lg font-bold text-slate-900">Configurações do Kids</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      {/* QR Code for App */}
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">App de Pais (Check-in Móvel)</h4>
+                        <div className="bg-slate-50 rounded-3xl border border-slate-200 border-dashed p-8 flex flex-col items-center justify-center text-center">
+                          <div className="bg-white p-4 rounded-2xl shadow-sm mb-4">
+                            <QRCodeCanvas 
+                              value={`${window.location.origin}/#responsaveis?church=${encodeURIComponent(churchName)}`}
+                              size={160}
+                              level="H"
+                              includeMargin={true}
+                            />
+                          </div>
+                          <p className="text-[10px] font-bold text-slate-900 uppercase tracking-widest">QR Code de Acesso</p>
+                          <p className="text-[9px] text-slate-500 mt-2 leading-relaxed">
+                            Disponibilize este QR Code para que os pais possam realizar o check-in através de seus próprios celulares.
+                          </p>
+                        </div>
+                      </div>
+
                       {/* Quick Links */}
                       <div className="space-y-4">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Acesso Rápido</h4>

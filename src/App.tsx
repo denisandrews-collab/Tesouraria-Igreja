@@ -72,7 +72,8 @@ import {
   MoreVertical,
   LockOpen,
   Megaphone,
-  PhoneCall
+  PhoneCall,
+  CreditCard
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
@@ -464,8 +465,10 @@ export default function App() {
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [selectedChildForDetails, setSelectedChildForDetails] = useState<Child | null>(null);
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState<string | null>(null);
+  const [showDigitalCard, setShowDigitalCard] = useState(false);
   const [mobilePhone, setMobilePhone] = useState("");
-  const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success" | "registration-guardian" | "registration-children">("phone");
+  const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success" | "registration-guardian" | "registration-children" | "portal">("phone");
+  const [guardianActiveTab, setGuardianActiveTab] = useState<"home" | "kids" | "history" | "profile">("home");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
 
@@ -1435,22 +1438,43 @@ export default function App() {
   };
 
   // Kids Ministry Logic
-  const handleAddGuardian = async (guardianData: Omit<Guardian, "id" | "created_at">) => {
+  const handleAddGuardian = async (guardianData: Omit<Guardian, "id" | "created_at"> & { password?: string }) => {
     try {
       setSubmitting(true);
-      const id = Math.random().toString(36).substring(2, 15);
+      const { password, ...data } = guardianData;
+      
+      let uid = Math.random().toString(36).substring(2, 15);
+      
+      // Se tiver senha e Firebase habilitado, cria a conta no Auth
+      if (password && auth && isFirebaseEnabled) {
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, data.email || `${data.phone}@igreja.com`, password);
+          uid = userCredential.user.uid;
+          setUser(userCredential.user);
+        } catch (authError: any) {
+          console.error("Firebase Auth registration failed:", authError);
+          if (authError.code === 'auth/email-already-in-use') {
+            addNotification("error", "Este e-mail já está em uso. Tente fazer login.");
+            return null;
+          }
+          addNotification("error", "Erro ao criar conta de acesso. Tente novamente.");
+          return null;
+        }
+      }
+
       const newGuardian = {
-        ...guardianData,
-        id,
+        ...data,
+        id: uid,
         created_at: new Date().toISOString()
       };
+
       if (db && isFirebaseEnabled) {
         try {
-          const docRef = await addDoc(collection(db, "guardians"), newGuardian);
+          await setDoc(doc(db, "guardians", uid), newGuardian);
           fetchEntries();
           setShowAddGuardianModal(false);
           addNotification("success", "Responsável adicionado com sucesso.");
-          return docRef.id;
+          return uid;
         } catch (fsError) {
           console.error("Firestore addGuardian failed, falling back to API:", fsError);
         }
@@ -1465,7 +1489,7 @@ export default function App() {
         fetchEntries();
         setShowAddGuardianModal(false);
         addNotification("success", "Responsável adicionado com sucesso.");
-        return id;
+        return uid;
       }
     } catch (error) {
       console.error("Error adding guardian:", error);
@@ -2490,12 +2514,30 @@ export default function App() {
                       Trocar Sala
                     </button>
                     <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedRoomForLeader.name}</h2>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-full">
                         {selectedRoomForLeader.minAge}-{selectedRoomForLeader.maxAge} anos
                       </span>
                       <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
                       <span className="text-xs font-bold text-slate-400">Capacidade: {totalCapacity} crianças</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+                      <button 
+                        onClick={() => {
+                          const current = roomStatus[selectedRoomForLeader.id] || "open";
+                          setRoomStatus({
+                            ...roomStatus,
+                            [selectedRoomForLeader.id]: current === "open" ? "closed" : "open"
+                          });
+                          addNotification("info", `Sala ${current === "open" ? "fechada" : "aberta"} com sucesso!`);
+                        }}
+                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                          (roomStatus[selectedRoomForLeader.id] || "open") === "open" 
+                            ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200" 
+                            : "bg-rose-100 text-rose-600 hover:bg-rose-200"
+                        }`}
+                      >
+                        {(roomStatus[selectedRoomForLeader.id] || "open") === "open" ? "Aberta" : "Fechada"}
+                      </button>
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -2526,6 +2568,19 @@ export default function App() {
                     <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-black rounded-md">{activeCheckins.length}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {activeCheckins.length > 0 && (
+                      <button 
+                        onClick={() => {
+                          if (window.confirm("Deseja realizar o checkout de TODAS as crianças desta sala?")) {
+                            activeCheckins.forEach(c => handleCheckOut(c.id));
+                            addNotification("success", "Checkout coletivo realizado!");
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-rose-50 text-rose-600 text-[10px] font-black rounded-lg uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all"
+                      >
+                        Checkout Geral
+                      </button>
+                    )}
                     <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
                       <Filter className="w-4 h-4" />
                     </button>
@@ -2743,7 +2798,71 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Child Details Modal */}
+        {/* Digital Card Modal */}
+        <AnimatePresence>
+          {showDigitalCard && selectedGuardian && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowDigitalCard(false)}
+                className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative w-full max-w-sm bg-white rounded-[3rem] overflow-hidden shadow-2xl"
+              >
+                <div className="bg-indigo-600 p-8 text-white text-center relative">
+                  <button 
+                    onClick={() => setShowDigitalCard(false)}
+                    className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                  <div className="w-20 h-20 bg-white/20 rounded-[2rem] flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                    <CreditCard className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-xl font-black tracking-tight">Carteirinha Digital</h3>
+                  <p className="text-indigo-100 text-xs font-bold uppercase tracking-widest mt-1">{churchName}</p>
+                </div>
+                
+                <div className="p-8 space-y-8">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-32 h-32 bg-slate-50 rounded-[2.5rem] border-4 border-white shadow-xl flex items-center justify-center text-indigo-600 text-4xl font-black">
+                      {selectedGuardian.name.charAt(0)}
+                    </div>
+                    <div className="text-center">
+                      <h4 className="text-xl font-black text-slate-900 leading-tight">{selectedGuardian.name}</h4>
+                      <p className="text-sm text-slate-400 font-medium">{selectedGuardian.phone}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex flex-col items-center gap-4">
+                    <div className="p-4 bg-white rounded-2xl shadow-sm">
+                      <QRCodeSVG 
+                        value={`guardian:${selectedGuardian.id}`}
+                        size={120}
+                        level="H"
+                        includeMargin={false}
+                      />
+                    </div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">ID: {selectedGuardian.id.toUpperCase()}</p>
+                  </div>
+
+                  <button 
+                    onClick={() => setShowDigitalCard(false)}
+                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all"
+                  >
+                    Fechar Carteirinha
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {selectedChildForDetails && (
             <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
@@ -2879,17 +2998,24 @@ export default function App() {
                 </div>
                 <div className="flex flex-col gap-3">
                   <button 
-                    onClick={() => {
-                      handleCheckOut(showCheckoutConfirm);
-                      setShowCheckoutConfirm(null);
+                    disabled={submitting}
+                    onClick={async () => {
+                      setSubmitting(true);
+                      try {
+                        await handleCheckOut(showCheckoutConfirm);
+                        setShowCheckoutConfirm(null);
+                      } finally {
+                        setSubmitting(false);
+                      }
                     }}
-                    className="w-full py-4 bg-rose-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-200"
+                    className="w-full py-4 bg-rose-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 flex items-center justify-center gap-2"
                   >
-                    Sim, Confirmar Saída
+                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Sim, Confirmar Saída"}
                   </button>
                   <button 
+                    disabled={submitting}
                     onClick={() => setShowCheckoutConfirm(null)}
-                    className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-200 transition-all"
+                    className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
                   >
                     Cancelar
                   </button>
@@ -2903,7 +3029,10 @@ export default function App() {
   }
 
   if (isPublicRegistration) {
-    if (!user) {
+    // Se não estiver logado e não estiver no passo de registro, mostra login
+    if (!user && registrationStep === "guardian") {
+      // Permitimos continuar para o formulário de registro mesmo sem estar logado
+    } else if (!user) {
       return (
         <LoginScreen 
           title="Cadastro Kids" 
@@ -2929,17 +3058,26 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
         <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-xl overflow-hidden mt-8">
           <div className="bg-indigo-600 p-8 text-white text-center relative">
-            <button 
-              onClick={handleLogout}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
+            {user && (
+              <button 
+                onClick={handleLogout}
+                className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            )}
             <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
               <UserPlus className="w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold">Cadastro Kids</h1>
             <p className="text-indigo-100 text-sm mt-2">Registre sua família para o ministério infantil</p>
+            
+            {/* Progress Indicator */}
+            <div className="flex items-center justify-center mt-6 gap-2">
+              <div className={`h-1.5 w-8 rounded-full transition-all duration-500 ${registrationStep === "guardian" ? "bg-white" : "bg-white/30"}`} />
+              <div className={`h-1.5 w-8 rounded-full transition-all duration-500 ${registrationStep === "children" ? "bg-white" : "bg-white/30"}`} />
+              <div className={`h-1.5 w-8 rounded-full transition-all duration-500 ${registrationStep === "success" ? "bg-white" : "bg-white/30"}`} />
+            </div>
           </div>
 
           <div className="p-8">
@@ -2951,29 +3089,54 @@ export default function App() {
                   name: formData.get('name') as string,
                   phone: formData.get('phone') as string,
                   email: formData.get('email') as string,
+                  password: formData.get('password') as string,
                 });
                 if (guardianId) {
                   setRegistrationGuardianId(guardianId);
                   setRegistrationStep("children");
                 }
               }} className="space-y-6">
-                <h2 className="text-lg font-bold text-slate-800">Passo 1: Responsável</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-slate-800">1. Crie sua Conta</h2>
+                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full uppercase tracking-widest">Passo 1 de 3</span>
+                </div>
+                
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
-                    <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input name="name" required className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Seu nome completo" />
+                    </div>
                   </div>
+                  
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
-                    <input name="phone" required type="tel" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                    <div className="relative">
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input name="phone" required type="tel" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="(00) 00000-0000" />
+                    </div>
                   </div>
+
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
-                    <input name="email" type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input name="email" type="email" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="seu@email.com" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Crie uma Senha</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input name="password" required type="password" minLength={6} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Mínimo 6 caracteres" />
+                    </div>
                   </div>
                 </div>
-                <button type="submit" disabled={submitting} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50">
-                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Próximo Passo"}
+
+                <button type="submit" disabled={submitting} className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50">
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Criar Conta e Continuar"}
                 </button>
               </form>
             )}
@@ -2981,21 +3144,31 @@ export default function App() {
             {registrationStep === "children" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-slate-800">Passo 2: Crianças</h2>
-                  <button onClick={() => setRegistrationStep("success")} className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Finalizar</button>
+                  <h2 className="text-lg font-bold text-slate-800">2. Adicione seus Filhos</h2>
+                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full uppercase tracking-widest">Passo 2 de 3</span>
                 </div>
                 
                 <div className="space-y-4">
                   {children.filter(c => c.guardianId === registrationGuardianId).map(child => (
-                    <div key={child.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">{child.name}</p>
-                        <p className="text-[10px] text-slate-400">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                    <motion.div 
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      key={child.id} 
+                      className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 font-bold">
+                          {child.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{child.name}</p>
+                          <p className="text-[10px] text-slate-400">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                        </div>
                       </div>
                       <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
                         <Check className="w-4 h-4 text-emerald-600" />
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
 
@@ -3010,23 +3183,40 @@ export default function App() {
                     notes: formData.get('notes') as string,
                   });
                   e.currentTarget.reset();
-                }} className="space-y-4 pt-4 border-t border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adicionar Criança</p>
+                }} className="space-y-4 pt-6 border-t border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <UserPlus className="w-3 h-3" /> Adicionar Criança
+                  </p>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
-                    <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                    <input name="name" required className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all" placeholder="Nome completo" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
-                    <input name="birthDate" required type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                      <input name="birthDate" required type="date" className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all" />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Observações</label>
-                    <input name="allergies" placeholder="Ex: Alergia a amendoim" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                    <textarea name="allergies" rows={2} className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all resize-none" placeholder="Ex: Alergia a amendoim, intolerância a lactose..." />
                   </div>
-                  <button type="submit" disabled={submitting} className="w-full py-3 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50">
-                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Adicionar Criança"}
-                  </button>
+                  
+                  <div className="flex flex-col gap-3 pt-2">
+                    <button type="submit" disabled={submitting} className="w-full py-4 bg-white border-2 border-indigo-600 text-indigo-600 rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                      {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-5 h-5" /> Adicionar Criança</>}
+                    </button>
+                    
+                    {children.filter(c => c.guardianId === registrationGuardianId).length > 0 && (
+                      <button 
+                        type="button"
+                        onClick={() => setRegistrationStep("success")}
+                        className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+                      >
+                        Finalizar Cadastro <ArrowRight className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
                 </form>
               </div>
             )}
@@ -3053,7 +3243,8 @@ export default function App() {
   }
 
   if (isMobileCheckin) {
-    if (!user) {
+    // If not logged in and not in registration, show login
+    if (!user && mobileStep !== "registration-guardian") {
       return (
         <LoginScreen 
           title="Check-in Mobile" 
@@ -3075,11 +3266,21 @@ export default function App() {
       );
     }
 
-    const filteredGuardians = guardians.filter(g => g.phone.includes(mobilePhone));
-    const guardian = filteredGuardians.length === 1 ? filteredGuardians[0] : null;
+    const currentGuardian = user ? guardians.find(g => g.email === user.email) : null;
+    
+    // If logged in but no guardian record found, force registration
+    if (user && !currentGuardian && mobileStep !== "registration-guardian" && mobileStep !== "registration-children") {
+      setMobileStep("registration-guardian");
+    }
+
+    // If logged in and has guardian record, show portal by default
+    if (user && currentGuardian && mobileStep === "phone") {
+      setMobileStep("portal");
+      setSelectedGuardian(currentGuardian);
+    }
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-24">
         {/* Header */}
         <div className="w-full max-w-md bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
           <div className="flex items-center gap-3">
@@ -3088,68 +3289,293 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-900 leading-none">{churchName}</h1>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Check-in Móvel</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Portal do Responsável</p>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+          {user && (
+            <button 
+              onClick={handleLogout}
+              className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
-        <div className="w-full max-w-md p-6 space-y-8 pb-24">
+        <div className="w-full max-w-md p-6 space-y-8">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
-            {mobileStep === "phone" && (
+            {mobileStep === "portal" && selectedGuardian && (
+              <div className="space-y-8">
+                {guardianActiveTab === "home" && (
+                  <div className="space-y-8">
+                    <div className="space-y-2">
+                      <h2 className="text-3xl font-black text-slate-900 tracking-tight">Olá, {selectedGuardian.name.split(' ')[0]}! 👋</h2>
+                      <p className="text-sm text-slate-500 font-medium">O que vamos fazer hoje?</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <button 
+                        onClick={() => setMobileStep("selection")}
+                        className="p-8 bg-indigo-600 text-white rounded-[3rem] flex flex-col items-center gap-4 shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 group"
+                      >
+                        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md group-hover:scale-110 transition-transform">
+                          <QrCode className="w-8 h-8" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-lg font-black uppercase tracking-widest">Fazer Check-in</p>
+                          <p className="text-xs text-indigo-100 font-medium mt-1">Rápido e seguro</p>
+                        </div>
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => setShowDigitalCard(true)}
+                          className="p-6 bg-white border border-slate-200 rounded-[2.5rem] flex flex-col items-center gap-3 shadow-sm hover:border-indigo-200 transition-all group"
+                        >
+                          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
+                            <CreditCard className="w-6 h-6" />
+                          </div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Carteirinha</p>
+                        </button>
+                        <button 
+                          onClick={() => setGuardianActiveTab("kids")}
+                          className="p-6 bg-white border border-slate-200 rounded-[2.5rem] flex flex-col items-center gap-3 shadow-sm hover:border-indigo-200 transition-all group"
+                        >
+                          <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                            <Users className="w-6 h-6" />
+                          </div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Meus Filhos</p>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Next Event Card */}
+                    <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden relative group">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform" />
+                      <div className="relative z-10 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
+                            <Calendar className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Próximo Evento</p>
+                            <p className="text-sm font-bold text-slate-900">Culto de Domingo</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between pt-2">
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-indigo-600" />
+                            <span className="text-xs font-bold text-slate-600">18:00 - 20:00</span>
+                          </div>
+                          <span className="px-3 py-1 bg-emerald-100 text-emerald-600 text-[8px] font-black uppercase tracking-widest rounded-full">Confirmado</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-indigo-50 p-6 rounded-[2.5rem] border border-indigo-100">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white">
+                          <Info className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-indigo-900">Dica de Segurança</p>
+                          <p className="text-xs text-indigo-700 mt-0.5">Sempre apresente o ticket digital na retirada das crianças.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {guardianActiveTab === "kids" && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-2xl font-black text-slate-900 tracking-tight">Meus Filhos</h2>
+                      <button 
+                        onClick={() => setMobileStep("registration-children")}
+                        className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100"
+                      >
+                        <Plus className="w-6 h-6" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
+                        <div key={child.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-indigo-600 border border-slate-100">
+                              <User className="w-8 h-8" />
+                            </div>
+                            <div>
+                              <p className="text-lg font-black text-slate-900 tracking-tight">{child.name}</p>
+                              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
+                                {new Date().getFullYear() - new Date(child.birthDate).getFullYear()} anos • {child.allergies ? "Com Alergias" : "Sem Alergias"}
+                              </p>
+                            </div>
+                          </div>
+                          <button className="p-2 text-slate-300 hover:text-indigo-600 transition-colors">
+                            <ChevronRight className="w-6 h-6" />
+                          </button>
+                        </div>
+                      ))}
+                      {children.filter(c => c.guardianId === selectedGuardian.id).length === 0 && (
+                        <div className="text-center py-12 bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+                          <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300">
+                            <Baby className="w-8 h-8" />
+                          </div>
+                          <p className="text-slate-400 font-medium">Nenhuma criança cadastrada.</p>
+                          <button 
+                            onClick={() => setMobileStep("registration-children")}
+                            className="mt-4 text-indigo-600 font-black uppercase tracking-widest text-[10px]"
+                          >
+                            Cadastrar agora
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {guardianActiveTab === "history" && (
+                  <div className="space-y-6">
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Histórico</h2>
+                    <div className="space-y-4">
+                      {kidsCheckIns
+                        .filter(ci => selectedChildren.includes(ci.childId) || children.find(c => c.id === ci.childId)?.guardianId === selectedGuardian.id)
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                        .slice(0, 10)
+                        .map(ci => {
+                          const child = children.find(c => c.id === ci.childId);
+                          return (
+                            <div key={ci.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${ci.status === 'checked-in' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+                                  <Clock className="w-6 h-6" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-black text-slate-900">{child?.name}</p>
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                                    {new Date(ci.created_at).toLocaleDateString('pt-BR')} • {ci.status === 'checked-in' ? 'Presente' : 'Saída'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sala</p>
+                                <p className="text-xs font-bold text-slate-700">{rooms.find(r => r.id === ci.room)?.name}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      {kidsCheckIns.length === 0 && (
+                        <p className="text-center text-slate-400 py-12">Nenhum registro encontrado.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {guardianActiveTab === "profile" && (
+                  <div className="space-y-6">
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">Meu Perfil</h2>
+                    <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-8">
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white text-3xl font-black shadow-xl shadow-indigo-100">
+                          {selectedGuardian.name.charAt(0)}
+                        </div>
+                        <div className="text-center">
+                          <h3 className="text-xl font-black text-slate-900">{selectedGuardian.name}</h3>
+                          <p className="text-sm text-slate-400 font-medium">{selectedGuardian.email}</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-4 border-t border-slate-100">
+                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                          <div className="flex items-center gap-3">
+                            <Phone className="w-4 h-4 text-slate-400" />
+                            <p className="text-sm font-bold text-slate-700">{selectedGuardian.phone}</p>
+                          </div>
+                          <button className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Editar</button>
+                        </div>
+                        <button 
+                          onClick={handleLogout}
+                          className="w-full py-4 bg-rose-50 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center justify-center gap-2"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sair da Conta
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bottom Navigation */}
+                <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-4 flex items-center justify-around z-50">
+                  <button 
+                    onClick={() => setGuardianActiveTab("home")}
+                    className={`flex flex-col items-center gap-1 transition-all ${guardianActiveTab === "home" ? "text-indigo-600 scale-110" : "text-slate-300"}`}
+                  >
+                    <Home className="w-6 h-6" />
+                    <span className="text-[8px] font-black uppercase tracking-widest">Início</span>
+                  </button>
+                  <button 
+                    onClick={() => setGuardianActiveTab("kids")}
+                    className={`flex flex-col items-center gap-1 transition-all ${guardianActiveTab === "kids" ? "text-indigo-600 scale-110" : "text-slate-300"}`}
+                  >
+                    <Users className="w-6 h-6" />
+                    <span className="text-[8px] font-black uppercase tracking-widest">Filhos</span>
+                  </button>
+                  <button 
+                    onClick={() => setGuardianActiveTab("history")}
+                    className={`flex flex-col items-center gap-1 transition-all ${guardianActiveTab === "history" ? "text-indigo-600 scale-110" : "text-slate-300"}`}
+                  >
+                    <History className="w-6 h-6" />
+                    <span className="text-[8px] font-black uppercase tracking-widest">Histórico</span>
+                  </button>
+                  <button 
+                    onClick={() => setGuardianActiveTab("profile")}
+                    className={`flex flex-col items-center gap-1 transition-all ${guardianActiveTab === "profile" ? "text-indigo-600 scale-110" : "text-slate-300"}`}
+                  >
+                    <User className="w-6 h-6" />
+                    <span className="text-[8px] font-black uppercase tracking-widest">Perfil</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mobileStep === "phone" && !user && (
               <div className="space-y-8 pt-8">
                 <div className="text-center space-y-2">
-                  <h2 className="text-3xl font-bold text-slate-900">Bem-vindo(a)!</h2>
-                  <p className="text-sm text-slate-500">Digite seu telefone para iniciar o check-in das crianças.</p>
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tight">Bem-vindo(a)! 👋</h2>
+                  <p className="text-sm text-slate-500 font-medium">Faça login ou crie sua conta para gerenciar o check-in das crianças.</p>
                 </div>
                 
-                <div className="space-y-6">
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-                      <Phone className="w-5 h-5" />
-                    </div>
-                    <input
-                      type="tel"
-                      placeholder="(00) 00000-0000"
-                      className="w-full pl-16 pr-4 py-5 bg-white border border-slate-200 rounded-[2rem] focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 outline-none transition-all text-xl font-bold text-slate-900 shadow-sm"
-                      value={mobilePhone}
-                      onChange={(e) => setMobilePhone(e.target.value)}
-                    />
-                  </div>
-                  
+                <div className="grid grid-cols-1 gap-4">
                   <button
-                    onClick={() => {
-                      if (guardian) {
-                        setSelectedGuardian(guardian);
-                        setMobileStep("selection");
-                      } else {
-                        setMobileStep("registration-guardian");
-                      }
-                    }}
-                    disabled={!mobilePhone || mobilePhone.length < 8}
-                    className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-3"
+                    onClick={() => setIsRegistering(false)}
+                    className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3"
                   >
-                    {guardian ? "Continuar para Check-in" : "Cadastrar meu Telefone"}
+                    Entrar na Minha Conta
                     <ChevronRight className="w-5 h-5" />
                   </button>
+                  <button
+                    onClick={() => {
+                      setIsRegistering(true);
+                      setMobileStep("registration-guardian");
+                    }}
+                    className="w-full py-6 bg-white border-2 border-slate-200 text-slate-600 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:border-indigo-200 hover:text-indigo-600 transition-all flex items-center justify-center gap-3"
+                  >
+                    Criar Nova Conta
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
 
-                  {!guardian && mobilePhone.length >= 8 && (
-                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-700 leading-relaxed">
-                        Não encontramos um cadastro com este número. Clique no botão acima para realizar seu cadastro rápido.
-                      </p>
-                    </div>
-                  )}
+                <div className="p-6 bg-indigo-50 rounded-[2.5rem] border border-indigo-100 flex items-start gap-4">
+                  <Shield className="w-6 h-6 text-indigo-600 shrink-0 mt-1" />
+                  <p className="text-xs text-indigo-700 leading-relaxed font-medium">
+                    Seu acesso é protegido e criptografado. Somente você e os líderes autorizados têm acesso aos dados das crianças.
+                  </p>
                 </div>
               </div>
             )}
@@ -3158,17 +3584,29 @@ export default function App() {
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
+                const email = formData.get('email') as string;
+                const password = formData.get('password') as string;
+                const name = formData.get('name') as string;
+                const phone = formData.get('phone') as string;
+
+                if (!password || !name || !phone) {
+                  addNotification("warning", "Por favor, preencha todos os campos obrigatórios.");
+                  return;
+                }
+
                 const guardianId = await handleAddGuardian({
-                  name: formData.get('name') as string,
-                  phone: formData.get('phone') as string,
-                  email: formData.get('email') as string,
+                  name,
+                  phone,
+                  email,
+                  password
                 });
+
                 if (guardianId) {
-                  const newGuardian = guardians.find(g => g.id === guardianId) || {
+                  const newGuardian = {
                     id: guardianId,
-                    name: formData.get('name') as string,
-                    phone: formData.get('phone') as string,
-                    email: formData.get('email') as string,
+                    name,
+                    phone,
+                    email,
                     created_at: new Date().toISOString()
                   };
                   setSelectedGuardian(newGuardian);
@@ -3191,12 +3629,12 @@ export default function App() {
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                   <div>
-                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Seu Cadastro</h2>
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Crie sua Conta</h2>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Passo 1 de 3</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
                     <div className="relative">
@@ -3217,19 +3655,33 @@ export default function App() {
                         name="phone" 
                         required 
                         type="tel" 
-                        defaultValue={mobilePhone} 
+                        placeholder="(00) 00000-0000"
                         className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
                     <div className="relative">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input 
                         name="email" 
                         type="email" 
-                        placeholder="Para receber avisos e relatórios"
+                        required
+                        placeholder="seu@email.com"
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Crie uma Senha</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        name="password" 
+                        type="password" 
+                        required
+                        placeholder="Mínimo 6 caracteres"
                         className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                       />
                     </div>
@@ -3239,9 +3691,9 @@ export default function App() {
                 <button 
                   type="submit" 
                   disabled={submitting} 
-                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-3"
+                  className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-3"
                 >
-                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Próximo Passo"}
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Criar Conta e Continuar"}
                   {!submitting && <ChevronRight className="w-5 h-5" />}
                 </button>
               </form>

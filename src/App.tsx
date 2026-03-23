@@ -172,6 +172,7 @@ interface Child {
   guardianId: string;
   allergies?: string;
   notes?: string;
+  kinship?: string;
   created_at: string;
 }
 
@@ -410,6 +411,9 @@ export default function App() {
   const [kidsCheckIns, setKidsCheckIns] = useState<KidsCheckIn[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [kidsTab, setKidsTab] = useState<"checkin" | "children" | "guardians" | "classrooms" | "reports" | "settings">("checkin");
+  const [guardianAlreadyExists, setGuardianAlreadyExists] = useState(false);
+  const [childAlreadyExists, setChildAlreadyExists] = useState<Child | null>(null);
+  const [showKinshipInput, setShowKinshipInput] = useState(false);
   const [selectedGuardian, setSelectedGuardian] = useState<Guardian | null>(null);
   const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
@@ -551,6 +555,16 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [db]);
+
+  useEffect(() => {
+    if (user && isMobileCheckin && !selectedGuardian) {
+      const guardian = guardians.find(g => g.id === user.uid || g.email === user.email);
+      if (guardian) {
+        setSelectedGuardian(guardian);
+        setMobileStep("selection");
+      }
+    }
+  }, [user, isMobileCheckin, guardians, selectedGuardian]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1453,6 +1467,14 @@ export default function App() {
       setSubmitting(true);
       const { password, ...data } = guardianData;
       
+      // Check if phone already exists in local state
+      const existingByPhone = guardians.find(g => g.phone === data.phone);
+      if (existingByPhone) {
+        setGuardianAlreadyExists(true);
+        setSubmitting(false);
+        return null;
+      }
+
       let uid = Math.random().toString(36).substring(2, 15);
       
       // Se tiver senha e Firebase habilitado, cria a conta no Auth
@@ -1464,7 +1486,8 @@ export default function App() {
         } catch (authError: any) {
           console.error("Firebase Auth registration failed:", authError);
           if (authError.code === 'auth/email-already-in-use') {
-            addNotification("error", "Este e-mail já está em uso. Tente fazer login.");
+            setGuardianAlreadyExists(true);
+            setSubmitting(false);
             return null;
           }
           addNotification("error", "Erro ao criar conta de acesso. Tente novamente.");
@@ -1513,33 +1536,59 @@ export default function App() {
   const handleAddChild = async (childData: Omit<Child, "id" | "created_at">) => {
     try {
       setSubmitting(true);
-      const id = Math.random().toString(36).substring(2, 15);
+      
+      // Check if child already exists (same name and birthDate)
+      const existingChild = children.find(c => 
+        c.name.toLowerCase().trim() === childData.name.toLowerCase().trim() && 
+        c.birthDate === childData.birthDate
+      );
+
+      if (existingChild && !childData.kinship) {
+        setChildAlreadyExists(existingChild);
+        setShowKinshipInput(true);
+        setSubmitting(false);
+        return null;
+      }
+
+      const id = existingChild ? existingChild.id : Math.random().toString(36).substring(2, 15);
       const newChild = {
         ...childData,
         id,
-        created_at: new Date().toISOString()
+        created_at: existingChild ? existingChild.created_at : new Date().toISOString()
       };
+
       if (db && isFirebaseEnabled) {
         try {
-          const docRef = await addDoc(collection(db, "children"), newChild);
+          if (existingChild) {
+            await updateDoc(doc(db, "children", id), newChild);
+          } else {
+            await addDoc(collection(db, "children"), newChild);
+          }
           fetchEntries();
           setShowAddChildModal(false);
-          addNotification("success", "Criança adicionada com sucesso.");
-          return docRef.id;
+          setChildAlreadyExists(null);
+          setShowKinshipInput(false);
+          addNotification("success", existingChild ? "Vínculo com a criança atualizado." : "Criança adicionada com sucesso.");
+          return id;
         } catch (fsError) {
           console.error("Firestore addChild failed, falling back to API:", fsError);
         }
       }
 
-      const response = await fetch("/api/children", {
-        method: "POST",
+      const method = existingChild ? "PATCH" : "POST";
+      const url = existingChild ? `/api/children/${id}` : "/api/children";
+
+      const response = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newChild)
       });
       if (response.ok) {
         fetchEntries();
         setShowAddChildModal(false);
-        addNotification("success", "Criança adicionada com sucesso.");
+        setChildAlreadyExists(null);
+        setShowKinshipInput(false);
+        addNotification("success", existingChild ? "Vínculo com a criança atualizado." : "Criança adicionada com sucesso.");
         return id;
       }
     } catch (error) {
@@ -1872,11 +1921,18 @@ export default function App() {
       
       const selectedChildrenData = children.filter(c => selectedChildren.includes(c.id));
       
+      let firstRoomId = selectedRoomId;
+
       for (const child of selectedChildrenData) {
         // Automatic room assignment based on age
         const age = calculateAge(child.birthDate);
         const autoRoom = findRoomForAge(age);
         const roomId = selectedRoomId || autoRoom?.id;
+        
+        if (!firstRoomId && roomId) {
+          firstRoomId = roomId;
+        }
+
         const room = rooms.find(r => r.id === roomId);
         const roomName = room ? room.name : "Sala Geral";
 
@@ -1912,6 +1968,7 @@ export default function App() {
       }
 
       fetchEntries();
+      if (firstRoomId) setSelectedRoomId(firstRoomId);
       setSelectedChildren([]);
       setSelectedGuardian(null);
       if (isMobileCheckin) setMobileStep("success");
@@ -3570,25 +3627,74 @@ export default function App() {
                   <p className="text-sm text-slate-500 font-medium">Faça login ou crie sua conta para gerenciar o check-in das crianças.</p>
                 </div>
                 
-                <div className="grid grid-cols-1 gap-4">
-                  <button
-                    onClick={() => setIsRegistering(false)}
-                    className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3"
-                  >
-                    Entrar na Minha Conta
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsRegistering(true);
-                      setMobileStep("registration-guardian");
-                    }}
-                    className="w-full py-6 bg-white border-2 border-slate-200 text-slate-600 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:border-indigo-200 hover:text-indigo-600 transition-all flex items-center justify-center gap-3"
-                  >
-                    Criar Nova Conta
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </div>
+                {!isRegistering ? (
+                  <form onSubmit={handleLogin} className="space-y-6 bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                      <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="email" 
+                          required 
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                          placeholder="seu@email.com"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="password" 
+                          required 
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <button 
+                      type="submit" 
+                      disabled={isLoggingIn}
+                      className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-3"
+                    >
+                      {isLoggingIn ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Entrar na Minha Conta"}
+                    </button>
+                    <div className="text-center pt-2">
+                      <button 
+                        type="button"
+                        onClick={() => setIsRegistering(true)}
+                        className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-all"
+                      >
+                        Não tem conta? Cadastre-se
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    <button
+                      onClick={() => setIsRegistering(false)}
+                      className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3"
+                    >
+                      Entrar na Minha Conta
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsRegistering(true);
+                        setMobileStep("registration-guardian");
+                      }}
+                      className="w-full py-6 bg-white border-2 border-slate-200 text-slate-600 rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:border-indigo-200 hover:text-indigo-600 transition-all flex items-center justify-center gap-3"
+                    >
+                      Criar Nova Conta
+                      <Plus className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
 
                 <div className="p-6 bg-indigo-50 rounded-[2.5rem] border border-indigo-100 flex items-start gap-4">
                   <Shield className="w-6 h-6 text-indigo-600 shrink-0 mt-1" />
@@ -3600,126 +3706,224 @@ export default function App() {
             )}
 
             {mobileStep === "registration-guardian" && (
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const email = formData.get('email') as string;
-                const password = formData.get('password') as string;
-                const name = formData.get('name') as string;
-                const phone = formData.get('phone') as string;
+              <>
+                {guardianAlreadyExists && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
+                    <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md space-y-6 shadow-2xl animate-in fade-in zoom-in duration-300">
+                      <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center text-amber-600 mx-auto">
+                        <AlertTriangle className="w-10 h-10" />
+                      </div>
+                      <div className="text-center space-y-2">
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Cadastro já existe!</h3>
+                        <p className="text-sm text-slate-500 font-medium">Identificamos que você já possui um cadastro com este e-mail ou telefone.</p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <button 
+                          onClick={() => {
+                            setGuardianAlreadyExists(false);
+                            setIsRegistering(false);
+                            setMobileStep("phone");
+                          }}
+                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                        >
+                          Fazer Login
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setGuardianAlreadyExists(false);
+                            addNotification("info", "Funcionalidade de troca de senha em breve.");
+                          }}
+                          className="w-full py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-bold uppercase tracking-widest hover:border-indigo-200 hover:text-indigo-600 transition-all"
+                        >
+                          Esqueci minha senha
+                        </button>
+                        <button 
+                          onClick={() => setGuardianAlreadyExists(false)}
+                          className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-all"
+                        >
+                          Voltar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const email = formData.get('email') as string;
+                  const password = formData.get('password') as string;
+                  const name = formData.get('name') as string;
+                  const phone = formData.get('phone') as string;
 
-                if (!password || !name || !phone) {
-                  addNotification("warning", "Por favor, preencha todos os campos obrigatórios.");
-                  return;
-                }
+                  if (!password || !name || !phone) {
+                    addNotification("warning", "Por favor, preencha todos os campos obrigatórios.");
+                    return;
+                  }
 
-                const guardianId = await handleAddGuardian({
-                  name,
-                  phone,
-                  email,
-                  password
-                });
-
-                if (guardianId) {
-                  const newGuardian = {
-                    id: guardianId,
+                  const guardianId = await handleAddGuardian({
                     name,
                     phone,
                     email,
-                    created_at: new Date().toISOString()
-                  };
-                  setSelectedGuardian(newGuardian);
-                  setMobileStep("registration-children");
-                }
-              }} className="space-y-8 pt-4">
-                {/* Progress Indicator */}
-                <div className="flex items-center gap-2 px-2">
-                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
-                </div>
+                    password
+                  });
 
-                <div className="flex items-center gap-4">
+                  if (guardianId) {
+                    const newGuardian = {
+                      id: guardianId,
+                      name,
+                      phone,
+                      email,
+                      created_at: new Date().toISOString()
+                    };
+                    setSelectedGuardian(newGuardian);
+                    setMobileStep("registration-children");
+                  }
+                }} className="space-y-8 pt-4">
+                  {/* Progress Indicator */}
+                  <div className="flex items-center gap-2 px-2">
+                    <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <button 
+                      type="button"
+                      onClick={() => setMobileStep("phone")}
+                      className="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                    >
+                      <ArrowLeft className="w-5 h-5" />
+                    </button>
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900 tracking-tight">Crie sua Conta</h2>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Passo 1 de 3</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                      <div className="relative">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Como devemos te chamar?"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
+                      <div className="relative">
+                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          name="phone" 
+                          required 
+                          type="tel" 
+                          placeholder="(00) 00000-0000"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                      <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          name="email" 
+                          type="email" 
+                          required
+                          placeholder="seu@email.com"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Crie uma Senha</label>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          name="password" 
+                          type="password" 
+                          required
+                          placeholder="Mínimo 6 caracteres"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <button 
-                    type="button"
-                    onClick={() => setMobileStep("phone")}
-                    className="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                    type="submit" 
+                    disabled={submitting} 
+                    className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-3"
                   >
-                    <ArrowLeft className="w-5 h-5" />
+                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Criar Conta e Continuar"}
+                    {!submitting && <ChevronRight className="w-5 h-5" />}
                   </button>
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Crie sua Conta</h2>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Passo 1 de 3</p>
-                  </div>
-                </div>
-
-                <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input 
-                        name="name" 
-                        required 
-                        placeholder="Como devemos te chamar?"
-                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
-                    <div className="relative">
-                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input 
-                        name="phone" 
-                        required 
-                        type="tel" 
-                        placeholder="(00) 00000-0000"
-                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
-                    <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input 
-                        name="email" 
-                        type="email" 
-                        required
-                        placeholder="seu@email.com"
-                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Crie uma Senha</label>
-                    <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input 
-                        name="password" 
-                        type="password" 
-                        required
-                        placeholder="Mínimo 6 caracteres"
-                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <button 
-                  type="submit" 
-                  disabled={submitting} 
-                  className="w-full py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-3"
-                >
-                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Criar Conta e Continuar"}
-                  {!submitting && <ChevronRight className="w-5 h-5" />}
-                </button>
-              </form>
+                </form>
+              </>
             )}
 
             {mobileStep === "registration-children" && selectedGuardian && (
               <div className="space-y-8 pt-4">
+                {showKinshipInput && childAlreadyExists && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
+                    <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md space-y-6 shadow-2xl animate-in fade-in zoom-in duration-300">
+                      <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600 mx-auto">
+                        <User className="w-10 h-10" />
+                      </div>
+                      <div className="text-center space-y-2">
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Criança já cadastrada!</h3>
+                        <p className="text-sm text-slate-500 font-medium">
+                          A criança <strong>{childAlreadyExists.name}</strong> já está no nosso sistema. 
+                          Por favor, informe seu grau de parentesco para continuar.
+                        </p>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Grau de Parentesco</label>
+                          <select 
+                            id="kinship-select"
+                            className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all text-sm font-medium"
+                          >
+                            <option value="Pai">Pai</option>
+                            <option value="Mãe">Mãe</option>
+                            <option value="Avô/Avó">Avô/Avó</option>
+                            <option value="Tio/Tia">Tio/Tia</option>
+                            <option value="Outro">Outro</option>
+                          </select>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            const kinship = (document.getElementById('kinship-select') as HTMLSelectElement).value;
+                            await handleAddChild({
+                              name: childAlreadyExists.name,
+                              birthDate: childAlreadyExists.birthDate,
+                              guardianId: selectedGuardian.id,
+                              allergies: childAlreadyExists.allergies || "",
+                              notes: childAlreadyExists.notes || "",
+                              kinship
+                            });
+                          }}
+                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                        >
+                          Confirmar Vínculo
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setShowKinshipInput(false);
+                            setChildAlreadyExists(null);
+                          }}
+                          className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-all"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* Progress Indicator */}
                 <div className="flex items-center gap-2 px-2">
                   <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
@@ -3836,45 +4040,10 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Room Selection */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">1. Selecione a Sala</h3>
-                    {selectedRoomId && (
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Selecionado
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {rooms.map(room => (
-                      <button
-                        key={room.id}
-                        onClick={() => setSelectedRoomId(room.id)}
-                        className={`p-4 rounded-3xl border-2 text-left transition-all relative overflow-hidden group ${
-                          selectedRoomId === room.id
-                            ? "bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-200"
-                            : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
-                        }`}
-                      >
-                        <div className={`absolute -right-4 -top-4 w-12 h-12 rounded-full transition-all ${
-                          selectedRoomId === room.id ? "bg-white/10" : "bg-slate-50 group-hover:bg-indigo-50"
-                        }`} />
-                        <p className={`text-sm font-bold mb-1 ${selectedRoomId === room.id ? "text-white" : "text-slate-900"}`}>
-                          {room.name}
-                        </p>
-                        <p className={`text-[10px] font-bold uppercase tracking-widest ${selectedRoomId === room.id ? "text-white/70" : "text-slate-400"}`}>
-                          {room.minAge}-{room.maxAge} anos
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Children Selection */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">2. Selecione as Crianças</h3>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Selecione as Crianças</h3>
                     <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
                       {selectedChildren.length} Selecionadas
                     </span>
@@ -3936,7 +4105,7 @@ export default function App() {
                     await handleCheckIn();
                     setMobileStep("success");
                   }}
-                  disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
+                  disabled={selectedChildren.length === 0 || submitting}
                   className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-3"
                 >
                   {submitting ? (
@@ -4015,13 +4184,18 @@ export default function App() {
                     <div className="space-y-4">
                       {selectedChildren.map(childId => {
                         const child = children.find(c => c.id === childId);
+                        const childAge = child ? calculateAge(child.birthDate) : 0;
+                        const childRoom = findRoomForAge(childAge);
                         return (
                           <div key={childId} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 font-black text-xs border border-slate-100">
                                 {child?.name.charAt(0)}
                               </div>
-                              <p className="text-sm font-bold text-slate-800">{child?.name}</p>
+                              <div>
+                                <p className="text-sm font-bold text-slate-800">{child?.name}</p>
+                                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">{childRoom?.name || "Sala Geral"}</p>
+                              </div>
                             </div>
                             <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase rounded-md border border-emerald-100">Confirmado</span>
                           </div>

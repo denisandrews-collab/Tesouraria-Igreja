@@ -117,6 +117,7 @@ try {
       guardianId TEXT NOT NULL,
       allergies TEXT,
       notes TEXT,
+      kinship TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -188,6 +189,11 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE guardians ADD COLUMN assignedRoomIds TEXT");
+} catch (e) {}
+
+// Migration for children table
+try {
+  db.exec("ALTER TABLE children ADD COLUMN kinship TEXT");
 } catch (e) {}
 
 // Helper for Firestore with timeout
@@ -640,8 +646,8 @@ app.use(express.json());
   app.post("/api/children", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      const { id, name, birthDate, guardianId, allergies, notes } = req.body;
-      db.prepare("INSERT INTO children (id, name, birthDate, guardianId, allergies, notes) VALUES (?, ?, ?, ?, ?, ?)").run(id, name, birthDate, guardianId, allergies, notes);
+      const { id, name, birthDate, guardianId, allergies, notes, kinship } = req.body;
+      db.prepare("INSERT INTO children (id, name, birthDate, guardianId, allergies, notes, kinship) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, name, birthDate, guardianId, allergies, notes, kinship);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to save child" });

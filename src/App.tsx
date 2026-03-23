@@ -62,7 +62,17 @@ import {
   ChevronRight,
   LogOut,
   Edit,
-  Settings
+  Settings,
+  Phone,
+  MessageCircle,
+  ExternalLink,
+  UserCheck,
+  UserX,
+  Activity,
+  MoreVertical,
+  LockOpen,
+  Megaphone,
+  PhoneCall
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
@@ -449,6 +459,11 @@ export default function App() {
   const [isPublicRegistration, setIsPublicRegistration] = useState(false);
   const [isRoomLeader, setIsRoomLeader] = useState(false);
   const [selectedRoomForLeader, setSelectedRoomForLeader] = useState<Room | null>(null);
+  const [roomStatus, setRoomStatus] = useState<Record<string, "open" | "closed">>({});
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [selectedChildForDetails, setSelectedChildForDetails] = useState<Child | null>(null);
+  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState<string | null>(null);
   const [mobilePhone, setMobilePhone] = useState("");
   const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success" | "registration-guardian" | "registration-children">("phone");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
@@ -2261,116 +2276,628 @@ export default function App() {
     }
 
     const activeCheckins = kidsCheckIns.filter(c => c.status === "checked-in" && (!selectedRoomForLeader || c.room === selectedRoomForLeader.name));
+    const totalCapacity = selectedRoomForLeader?.capacity || 0;
+    const occupancyRate = totalCapacity > 0 ? Math.round((activeCheckins.length / totalCapacity) * 100) : 0;
+    const currentRoomStatus = selectedRoomForLeader ? (roomStatus[selectedRoomForLeader.id] || "open") : "open";
+    const allergyCount = activeCheckins.filter(c => children.find(ch => ch.id === c.childId)?.allergies).length;
+    const newArrivals = activeCheckins.filter(c => {
+      const checkinTime = new Date(c.created_at || "").getTime();
+      const fifteenMinsAgo = new Date().getTime() - 15 * 60 * 1000;
+      return checkinTime > fifteenMinsAgo;
+    }).length;
     
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
-        <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-xl overflow-hidden mt-8">
-          <div className="bg-indigo-600 p-8 text-white text-center relative">
-            <button 
-              onClick={handleLogout}
-              className="absolute top-4 right-4 p-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-            <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <Users className="w-8 h-8" />
+      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center font-sans">
+        {/* Header */}
+        <div className="w-full max-w-2xl bg-white/90 backdrop-blur-xl border-b border-slate-200/60 px-6 py-5 flex items-center justify-between sticky top-0 z-[60] shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 ring-4 ring-indigo-50">
+              <Shield className="w-6 h-6" />
             </div>
-            <h1 className="text-2xl font-bold">Líder de Sala</h1>
-            <p className="text-indigo-100 text-sm mt-2">Gerenciamento de sala e checkout</p>
+            <div>
+              <h1 className="text-base font-black text-slate-900 leading-none tracking-tight">Líder de Sala</h1>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className={`w-2 h-2 rounded-full animate-pulse ${currentRoomStatus === "open" ? "bg-emerald-500" : "bg-rose-500"}`} />
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">
+                  {selectedRoomForLeader ? `${selectedRoomForLeader.name} • ${currentRoomStatus === "open" ? "Aberta" : "Fechada"}` : "Painel de Controle"}
+                </p>
+              </div>
+            </div>
           </div>
-
-          <div className="p-8">
-            {!selectedRoomForLeader ? (
-              <div className="space-y-6">
-                <h2 className="text-lg font-bold text-slate-800">Selecione sua Sala</h2>
-                <div className="grid grid-cols-1 gap-4">
-                  {rooms.map(room => (
-                    <button
-                      key={room.id}
-                      onClick={() => setSelectedRoomForLeader(room)}
-                      className="p-6 bg-slate-50 border border-slate-200 rounded-3xl text-left hover:border-indigo-500 transition-all group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-lg font-bold text-slate-800 group-hover:text-indigo-600">{room.name}</p>
-                          <p className="text-xs text-slate-400">
-                            {room.minAge}-{room.maxAge} anos
-                            {room.teacher && ` • Prof: ${room.teacher}`}
-                          </p>
-                        </div>
-                        <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <button 
-                      onClick={() => setSelectedRoomForLeader(null)}
-                      className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-1 flex items-center gap-1"
-                    >
-                      <ChevronRight className="w-3 h-3 rotate-180" />
-                      Trocar Sala
-                    </button>
-                    <h2 className="text-xl font-bold text-slate-800">{selectedRoomForLeader.name}</h2>
-                    {selectedRoomForLeader.teacher && (
-                      <p className="text-xs text-slate-500">Professor(a): {selectedRoomForLeader.teacher}</p>
-                    )}
-                    <p className="text-xs text-slate-400">{activeCheckins.length} crianças presentes</p>
-                  </div>
-                  <button onClick={() => setSelectedRoomForLeader(null)} className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Trocar Sala</button>
-                </div>
-
-                <div className="space-y-4">
-                  {activeCheckins.length === 0 ? (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Users className="w-8 h-8 text-slate-300" />
-                      </div>
-                      <p className="text-sm text-slate-400">Nenhuma criança na sala no momento.</p>
-                    </div>
-                  ) : (
-                    activeCheckins.map(checkin => {
-                      const child = children.find(c => c.id === checkin.childId);
-                      const guardian = guardians.find(g => g.id === checkin.guardianId);
-                      return (
-                        <div key={checkin.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">{child?.name}</p>
-                            <p className="text-[10px] text-slate-400">Responsável: {guardian?.name}</p>
-                          </div>
-                          <button
-                            onClick={() => handleCheckOut(checkin.id)}
-                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600 uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all"
-                          >
-                            Checkout
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                <div className="pt-6 border-t border-slate-100">
-                  <button 
-                    onClick={() => {
-                      // Logic to open camera and scan QR code for checkout
-                      // For now, we'll just show a notification that it's coming soon
-                      addNotification("info", "Funcionalidade de leitura de QR Code para checkout em breve.");
-                    }}
-                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 transition-all"
-                  >
-                    <QrCode className="w-5 h-5" />
-                    Ler QR Code para Checkout
-                  </button>
-                </div>
-              </div>
+          <div className="flex items-center gap-3">
+            {selectedRoomForLeader && (
+              <button 
+                onClick={() => {
+                  const newStatus = currentRoomStatus === "open" ? "closed" : "open";
+                  setRoomStatus(prev => ({ ...prev, [selectedRoomForLeader.id]: newStatus }));
+                  addNotification("info", `Sala ${selectedRoomForLeader.name} agora está ${newStatus === "open" ? "ABERTA" : "FECHADA"}.`);
+                }}
+                className={`p-2.5 rounded-xl transition-all border flex items-center gap-2 ${
+                  currentRoomStatus === "open" 
+                    ? "bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100" 
+                    : "bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100"
+                }`}
+                title={currentRoomStatus === "open" ? "Fechar Sala" : "Abrir Sala"}
+              >
+                {currentRoomStatus === "open" ? <LockOpen className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">
+                  {currentRoomStatus === "open" ? "Aberta" : "Fechada"}
+                </span>
+              </button>
             )}
+            <button 
+              onClick={() => {
+                setSelectedRoomForLeader(null);
+                setIsRoomLeader(false);
+              }}
+              className="p-2.5 text-slate-400 hover:text-slate-900 transition-all bg-slate-50 rounded-xl hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
+
+        <div className="w-full max-w-2xl p-4 space-y-8 pb-32">
+          {!selectedRoomForLeader ? (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-8 pt-6"
+            >
+              <div className="text-center space-y-3">
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight">Selecione sua Sala</h2>
+                <p className="text-sm text-slate-500 font-medium">Escolha a sala que você irá gerenciar hoje.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-5">
+                {rooms.map((room, idx) => {
+                  const roomCheckins = kidsCheckIns.filter(c => c.status === "checked-in" && c.room === room.name);
+                  const capacity = room.capacity || 20;
+                  const occupancy = Math.round((roomCheckins.length / capacity) * 100);
+                  
+                  return (
+                    <motion.button
+                      key={room.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.1 }}
+                      onClick={() => setSelectedRoomForLeader(room)}
+                      className="p-8 bg-white border border-slate-200 rounded-[2.5rem] text-left hover:border-indigo-500 hover:shadow-2xl hover:shadow-indigo-500/10 transition-all group relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-50/50 rounded-full -mr-20 -mt-20 group-hover:bg-indigo-100/50 transition-colors" />
+                      <div className="relative z-10 flex items-center justify-between">
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center gap-3">
+                            <p className="text-2xl font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{room.name}</p>
+                            <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest rounded-full">
+                              {room.minAge}-{room.maxAge} anos
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex -space-x-2">
+                              {[1, 2, 3].map(i => (
+                                <div key={i} className="w-6 h-6 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[8px] font-bold text-slate-400">
+                                  <User className="w-3 h-3" />
+                                </div>
+                              ))}
+                            </div>
+                            <span className="text-xs font-bold text-indigo-600">
+                              {roomCheckins.length} presentes agora
+                            </span>
+                          </div>
+                          
+                          {/* Mini Progress Bar */}
+                          <div className="mt-6 w-full max-w-[240px]">
+                            <div className="flex justify-between text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-2">
+                              <span>Ocupação da Sala</span>
+                              <span className={occupancy > 90 ? 'text-rose-500' : 'text-slate-600'}>{occupancy}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-700 ease-out ${
+                                  occupancy > 90 ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]' : occupancy > 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                                }`}
+                                style={{ width: `${Math.min(occupancy, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm group-hover:scale-110">
+                          <ChevronRight className="w-7 h-7" />
+                        </div>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-8"
+            >
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-50 rounded-full -mr-8 -mt-8 group-hover:scale-110 transition-transform" />
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Presentes</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-slate-900">{activeCheckins.length}</span>
+                      <span className="text-[10px] font-bold text-slate-400">/ {totalCapacity}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-50 rounded-full -mr-8 -mt-8 group-hover:scale-110 transition-transform" />
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                        <Activity className="w-4 h-4" />
+                      </div>
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Ocupação</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-slate-900">{occupancyRate}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-rose-50 rounded-full -mr-8 -mt-8 group-hover:scale-110 transition-transform" />
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 bg-rose-50 rounded-lg flex items-center justify-center text-rose-600">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Alergias</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-slate-900">{allergyCount}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-amber-50 rounded-full -mr-8 -mt-8 group-hover:scale-110 transition-transform" />
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Novos</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-slate-900">{newArrivals}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Room Info Card */}
+              <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-200 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600" />
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-2">
+                    <button 
+                      onClick={() => setSelectedRoomForLeader(null)}
+                      className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2 mb-3 hover:translate-x-[-4px] transition-transform"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      Trocar Sala
+                    </button>
+                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedRoomForLeader.name}</h2>
+                    <div className="flex items-center gap-3">
+                      <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-full">
+                        {selectedRoomForLeader.minAge}-{selectedRoomForLeader.maxAge} anos
+                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+                      <span className="text-xs font-bold text-slate-400">Capacidade: {totalCapacity} crianças</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-16 h-16 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 shadow-inner">
+                      <Users className="w-8 h-8" />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="mt-8 flex gap-3">
+                  <div className="flex-1 relative group">
+                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                    <input 
+                      type="text"
+                      placeholder="Buscar criança na sala..."
+                      className="w-full pl-14 pr-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-base font-medium outline-none focus:border-indigo-500 focus:ring-8 focus:ring-indigo-500/5 focus:bg-white transition-all shadow-sm"
+                      onChange={(e) => setKidsSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Student List */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between px-4">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em]">Lista de Chamada</h3>
+                    <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-black rounded-md">{activeCheckins.length}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
+                      <Filter className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {activeCheckins.length === 0 ? (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center py-24 bg-white rounded-[3rem] border-2 border-dashed border-slate-200"
+                  >
+                    <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Users className="w-12 h-12 text-slate-200" />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-900">Sala Vazia</h3>
+                    <p className="text-sm text-slate-400 max-w-[240px] mx-auto mt-2 font-medium">Nenhuma criança realizou check-in nesta sala ainda.</p>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-5">
+                    {activeCheckins
+                      .filter(c => {
+                        const child = children.find(ch => ch.id === c.childId);
+                        return child?.name.toLowerCase().includes(kidsSearchTerm.toLowerCase());
+                      })
+                      .map((checkin, idx) => {
+                        const child = children.find(c => c.id === checkin.childId);
+                        const guardian = guardians.find(g => g.id === checkin.guardianId);
+                        return (
+                          <motion.div 
+                            key={checkin.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl hover:shadow-slate-200/50 transition-all group relative overflow-hidden"
+                          >
+                            {child?.allergies && (
+                              <div className="absolute top-0 right-0 px-6 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-bl-2xl shadow-lg">
+                                ⚠️ Alergia
+                              </div>
+                            )}
+                            
+                            <div className="flex flex-col sm:flex-row items-start gap-6">
+                              <div className="relative shrink-0">
+                                <div className="w-24 h-24 rounded-[2rem] bg-slate-100 overflow-hidden border-4 border-white shadow-md group-hover:scale-105 transition-transform">
+                                  {child?.photo ? (
+                                    <img src={child.photo} alt={child.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-300 bg-indigo-50">
+                                      <User className="w-10 h-10" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-white rounded-2xl border border-slate-100 flex items-center justify-center shadow-lg">
+                                  <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-xs font-black text-white">
+                                    {new Date().getFullYear() - new Date(child?.birthDate || "").getFullYear()}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex-1 space-y-5 w-full">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h4 className="text-xl font-black text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors">{child?.name}</h4>
+                                    <div className="flex flex-wrap items-center gap-3 mt-2">
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100">
+                                        <Clock className="w-3 h-3 text-slate-400" />
+                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{checkin.time}</p>
+                                      </div>
+                                      <span className="w-1 h-1 rounded-full bg-slate-200" />
+                                      <div className="flex items-center gap-1.5">
+                                        <User className="w-3 h-3 text-indigo-400" />
+                                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{guardian?.name}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={() => setSelectedChildForDetails(child || null)}
+                                    className="flex-1 py-3.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-center gap-2 border border-slate-100"
+                                  >
+                                    <Info className="w-4 h-4" />
+                                    Detalhes
+                                  </button>
+                                  <a
+                                    href={`https://wa.me/${guardian?.phone.replace(/\D/g, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm border border-emerald-100"
+                                    title="Chamar Responsável"
+                                  >
+                                    <MessageCircle className="w-5 h-5" />
+                                  </a>
+                                  <button
+                                    onClick={() => setShowCheckoutConfirm(checkin.id)}
+                                    className="px-6 py-3.5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:shadow-lg hover:shadow-rose-200 transition-all shadow-md active:scale-95"
+                                  >
+                                    Checkout
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Quick Actions Bar */}
+        {selectedRoomForLeader && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-lg px-6 z-[70]">
+            <motion.div 
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="bg-slate-900/90 backdrop-blur-xl p-3 rounded-[2.5rem] shadow-2xl border border-white/10 flex items-center justify-between gap-2"
+            >
+              <button 
+                onClick={() => setShowBroadcastModal(true)}
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-white/60 hover:text-white hover:bg-white/10 rounded-2xl transition-all"
+              >
+                <Megaphone className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase tracking-widest">Aviso</span>
+              </button>
+              <div className="w-px h-8 bg-white/10" />
+              <button 
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-white/60 hover:text-white hover:bg-white/10 rounded-2xl transition-all"
+              >
+                <PhoneCall className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase tracking-widest">Suporte</span>
+              </button>
+              <div className="w-px h-8 bg-white/10" />
+              <button 
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-2xl transition-all"
+              >
+                <AlertCircle className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase tracking-widest">Emergência</span>
+              </button>
+              <div className="w-px h-8 bg-white/10" />
+              <button 
+                onClick={handleLogout}
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-white/60 hover:text-rose-400 hover:bg-rose-500/10 rounded-2xl transition-all"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase tracking-widest">Sair</span>
+              </button>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Broadcast Modal */}
+        <AnimatePresence>
+          {showBroadcastModal && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowBroadcastModal(false)}
+                className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-[3rem] p-8 space-y-6 shadow-2xl"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+                    <Megaphone className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 tracking-tight">Enviar Aviso Geral</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Para todos os pais desta sala</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mensagem do Aviso</label>
+                  <textarea 
+                    value={broadcastMessage}
+                    onChange={(e) => setBroadcastMessage(e.target.value)}
+                    placeholder="Ex: Todas as crianças já podem ser retiradas..."
+                    className="w-full h-32 p-5 bg-slate-50 border border-slate-200 rounded-3xl outline-none focus:border-indigo-500 focus:ring-8 focus:ring-indigo-500/5 transition-all text-sm font-medium resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowBroadcastModal(false)}
+                    className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (!broadcastMessage.trim()) return;
+                      addNotification("success", "Aviso enviado com sucesso para os responsáveis!");
+                      setShowBroadcastModal(false);
+                      setBroadcastMessage("");
+                    }}
+                    className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    Enviar Agora
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Child Details Modal */}
+        <AnimatePresence>
+          {selectedChildForDetails && (
+            <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedChildForDetails(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ y: 100, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 100, opacity: 0 }}
+                className="relative w-full max-w-md bg-white rounded-[2.5rem] overflow-hidden shadow-2xl"
+              >
+                <div className="h-32 bg-indigo-600 relative">
+                  <button 
+                    onClick={() => setSelectedChildForDetails(null)}
+                    className="absolute top-4 right-4 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="px-8 pb-8 -mt-16 relative">
+                  <div className="w-32 h-32 rounded-[2.5rem] bg-white p-1 shadow-xl mx-auto mb-4">
+                    <div className="w-full h-full rounded-[2.2rem] bg-slate-100 overflow-hidden border border-slate-100">
+                      {selectedChildForDetails.photo ? (
+                        <img src={selectedChildForDetails.photo} alt={selectedChildForDetails.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300 bg-indigo-50">
+                          <User className="w-12 h-12" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="text-center space-y-1 mb-8">
+                    <h3 className="text-2xl font-bold text-slate-900">{selectedChildForDetails.name}</h3>
+                    <p className="text-sm text-slate-500">
+                      {new Date().getFullYear() - new Date(selectedChildForDetails.birthDate).getFullYear()} anos • {selectedChildForDetails.birthDate}
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsável</p>
+                          <p className="text-sm font-bold text-slate-800">
+                            {guardians.find(g => g.id === selectedChildForDetails.guardianId)?.name}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm">
+                          <Phone className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Contato</p>
+                          <p className="text-sm font-bold text-slate-800">
+                            {guardians.find(g => g.id === selectedChildForDetails.guardianId)?.phone}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedChildForDetails.allergies && (
+                      <div className="p-4 bg-rose-50 rounded-3xl border border-rose-100 flex items-start gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-rose-600 shadow-sm shrink-0">
+                          <AlertCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">Alergias / Restrições</p>
+                          <p className="text-sm font-medium text-rose-900 leading-tight mt-1">{selectedChildForDetails.allergies}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedChildForDetails.notes && (
+                      <div className="p-4 bg-amber-50 rounded-3xl border border-amber-100 flex items-start gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-amber-600 shadow-sm shrink-0">
+                          <Info className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Observações</p>
+                          <p className="text-sm font-medium text-amber-900 leading-tight mt-1">{selectedChildForDetails.notes}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button 
+                    onClick={() => setSelectedChildForDetails(null)}
+                    className="w-full mt-8 py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-800 transition-all"
+                  >
+                    Fechar Detalhes
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Checkout Confirmation Modal */}
+        <AnimatePresence>
+          {showCheckoutConfirm && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowCheckoutConfirm(null)}
+                className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-8 text-center space-y-6 shadow-2xl"
+              >
+                <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto">
+                  <LogOut className="w-10 h-10 text-rose-600" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold text-slate-900">Confirmar Checkout?</h3>
+                  <p className="text-sm text-slate-500">
+                    A criança será marcada como retirada da sala. Esta ação não pode ser desfeita.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={() => {
+                      handleCheckOut(showCheckoutConfirm);
+                      setShowCheckoutConfirm(null);
+                    }}
+                    className="w-full py-4 bg-rose-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-200"
+                  >
+                    Sim, Confirmar Saída
+                  </button>
+                  <button 
+                    onClick={() => setShowCheckoutConfirm(null)}
+                    className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -2552,295 +3079,549 @@ export default function App() {
     const guardian = filteredGuardians.length === 1 ? filteredGuardians[0] : null;
 
     return (
-      <div className="min-h-screen bg-slate-50 p-4 flex flex-col items-center justify-center font-sans relative">
-        <button 
-          onClick={handleLogout}
-          className="absolute top-4 right-4 p-2 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"
-        >
-          <LogOut className="w-5 h-5 text-slate-400" />
-        </button>
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl shadow-indigo-100 overflow-hidden border border-slate-100 p-8 space-y-8"
-        >
-          <div className="flex flex-col items-center text-center space-y-4">
-            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
-              <Baby className="w-8 h-8 text-white" />
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans">
+        {/* Header */}
+        <div className="w-full max-w-md bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+              <Baby className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">{churchName}</h1>
-              <p className="text-sm text-slate-500 font-medium">Check-in Kids Ministry</p>
+              <h1 className="text-sm font-bold text-slate-900 leading-none">{churchName}</h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Check-in Móvel</p>
             </div>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
 
-          {mobileStep === "phone" && (
-            <div className="space-y-6">
-              <div className="space-y-2 text-center">
-                <p className="text-sm text-slate-600">Digite seu telefone para começar</p>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input
-                  type="tel"
-                  placeholder="(00) 00000-0000"
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-lg font-bold"
-                  value={mobilePhone}
-                  onChange={(e) => setMobilePhone(e.target.value)}
-                />
-              </div>
-              <button
-                onClick={() => {
-                  if (guardian) {
-                    setSelectedGuardian(guardian);
-                    setMobileStep("selection");
-                  } else {
-                    setMobileStep("registration-guardian");
-                  }
-                }}
-                disabled={!mobilePhone}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
-              >
-                {guardian ? "Continuar" : "Não encontrei meu cadastro. Cadastrar agora!"}
-              </button>
-            </div>
-          )}
-
-          {mobileStep === "registration-guardian" && (
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              const guardianId = await handleAddGuardian({
-                name: formData.get('name') as string,
-                phone: formData.get('phone') as string,
-                email: formData.get('email') as string,
-              });
-              if (guardianId) {
-                const newGuardian = guardians.find(g => g.id === guardianId) || {
-                  id: guardianId,
-                  name: formData.get('name') as string,
-                  phone: formData.get('phone') as string,
-                  email: formData.get('email') as string,
-                  created_at: new Date().toISOString()
-                };
-                setSelectedGuardian(newGuardian);
-                setMobileStep("registration-children");
-              }
-            }} className="space-y-6">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-slate-800">Novo Cadastro</h2>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Passo 1: Responsável</p>
-              </div>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
-                  <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+        <div className="w-full max-w-md p-6 space-y-8 pb-24">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            {mobileStep === "phone" && (
+              <div className="space-y-8 pt-8">
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-bold text-slate-900">Bem-vindo(a)!</h2>
+                  <p className="text-sm text-slate-500">Digite seu telefone para iniciar o check-in das crianças.</p>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
-                  <input name="phone" required type="tel" defaultValue={mobilePhone} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
-                  <input name="email" type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <button 
-                  type="button"
-                  onClick={() => setMobileStep("phone")}
-                  className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 transition-all"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <button type="submit" disabled={submitting} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50">
-                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Próximo Passo"}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {mobileStep === "registration-children" && selectedGuardian && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <button 
-                  onClick={() => setMobileStep("registration-guardian")}
-                  className="p-2 text-slate-400 hover:text-slate-600 transition-all"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div className="text-center flex-1 pr-8">
-                  <h2 className="text-xl font-bold text-slate-800">Novo Cadastro</h2>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Passo 2: Crianças</p>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
-                  <div key={child.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{child.name}</p>
-                      <p className="text-[10px] text-slate-400">{new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
+                
+                <div className="space-y-6">
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                      <Phone className="w-5 h-5" />
                     </div>
-                    <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
-                      <Check className="w-4 h-4 text-emerald-600" />
-                    </div>
+                    <input
+                      type="tel"
+                      placeholder="(00) 00000-0000"
+                      className="w-full pl-16 pr-4 py-5 bg-white border border-slate-200 rounded-[2rem] focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 outline-none transition-all text-xl font-bold text-slate-900 shadow-sm"
+                      value={mobilePhone}
+                      onChange={(e) => setMobilePhone(e.target.value)}
+                    />
                   </div>
-                ))}
-              </div>
+                  
+                  <button
+                    onClick={() => {
+                      if (guardian) {
+                        setSelectedGuardian(guardian);
+                        setMobileStep("selection");
+                      } else {
+                        setMobileStep("registration-guardian");
+                      }
+                    }}
+                    disabled={!mobilePhone || mobilePhone.length < 8}
+                    className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-3"
+                  >
+                    {guardian ? "Continuar para Check-in" : "Cadastrar meu Telefone"}
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
 
+                  {!guardian && mobilePhone.length >= 8 && (
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700 leading-relaxed">
+                        Não encontramos um cadastro com este número. Clique no botão acima para realizar seu cadastro rápido.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {mobileStep === "registration-guardian" && (
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
-                await handleAddChild({
+                const guardianId = await handleAddGuardian({
                   name: formData.get('name') as string,
-                  birthDate: formData.get('birthDate') as string,
-                  guardianId: selectedGuardian.id,
-                  allergies: formData.get('allergies') as string,
-                  notes: formData.get('notes') as string,
+                  phone: formData.get('phone') as string,
+                  email: formData.get('email') as string,
                 });
-                e.currentTarget.reset();
-              }} className="space-y-4 pt-4 border-t border-slate-100">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Adicionar Criança</p>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
-                  <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+                if (guardianId) {
+                  const newGuardian = guardians.find(g => g.id === guardianId) || {
+                    id: guardianId,
+                    name: formData.get('name') as string,
+                    phone: formData.get('phone') as string,
+                    email: formData.get('email') as string,
+                    created_at: new Date().toISOString()
+                  };
+                  setSelectedGuardian(newGuardian);
+                  setMobileStep("registration-children");
+                }
+              }} className="space-y-8 pt-4">
+                {/* Progress Indicator */}
+                <div className="flex items-center gap-2 px-2">
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
-                  <input name="birthDate" required type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+
+                <div className="flex items-center gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => setMobileStep("phone")}
+                    className="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Seu Cadastro</h2>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Passo 1 de 3</p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Observações</label>
-                  <input name="allergies" placeholder="Ex: Alergia a amendoim" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all" />
+
+                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        name="name" 
+                        required 
+                        placeholder="Como devemos te chamar?"
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
+                    <div className="relative">
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        name="phone" 
+                        required 
+                        type="tel" 
+                        defaultValue={mobilePhone} 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        name="email" 
+                        type="email" 
+                        placeholder="Para receber avisos e relatórios"
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                      />
+                    </div>
+                  </div>
                 </div>
-                <button type="submit" disabled={submitting} className="w-full py-3 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50">
-                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Adicionar Criança"}
+
+                <button 
+                  type="submit" 
+                  disabled={submitting} 
+                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-3"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Próximo Passo"}
+                  {!submitting && <ChevronRight className="w-5 h-5" />}
                 </button>
               </form>
+            )}
 
-              <button 
-                onClick={() => setMobileStep("selection")}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
-              >
-                Finalizar e Ir para Check-in
-              </button>
-            </div>
-          )}
-
-          {mobileStep === "selection" && selectedGuardian && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold">
-                  {selectedGuardian.name.charAt(0)}
+            {mobileStep === "registration-children" && selectedGuardian && (
+              <div className="space-y-8 pt-4">
+                {/* Progress Indicator */}
+                <div className="flex items-center gap-2 px-2">
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full" />
                 </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">{selectedGuardian.name}</p>
-                  <p className="text-xs text-indigo-600 font-medium">{selectedGuardian.phone}</p>
-                </div>
-              </div>
 
-              <div className="space-y-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Selecione a Sala:</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {rooms.map(room => (
-                    <button
-                      key={room.id}
-                      onClick={() => setSelectedRoomId(room.id)}
-                      className={`px-3 py-3 rounded-xl border text-xs font-bold uppercase tracking-widest transition-all ${
-                        selectedRoomId === room.id
-                          ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
-                          : "bg-white text-slate-500 border-slate-200"
-                      }`}
-                    >
-                      {room.name}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setMobileStep("registration-guardian")}
+                    className="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight">Cadastro de Crianças</h2>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Passo 2 de 3</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="space-y-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Selecione as crianças:</p>
-                <div className="space-y-2">
-                  {children
-                    .filter(c => c.guardianId === selectedGuardian.id)
-                    .map(child => (
-                      <button
-                        key={child.id}
-                        onClick={() => {
-                          if (selectedChildren.includes(child.id)) {
-                            setSelectedChildren(selectedChildren.filter(id => id !== child.id));
-                          } else {
-                            setSelectedChildren([...selectedChildren, child.id]);
-                          }
-                        }}
-                        className={`w-full p-4 rounded-2xl border transition-all text-left flex items-center gap-3 ${
-                          selectedChildren.includes(child.id)
-                            ? "bg-white border-indigo-600 shadow-md ring-2 ring-indigo-600/10"
-                            : "bg-white/50 border-slate-200"
-                        }`}
-                      >
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          selectedChildren.includes(child.id) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
-                        }`}>
-                          <Baby className="w-5 h-5" />
+                
+                <div className="space-y-3">
+                  {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
+                    <div key={child.id} className="p-4 bg-white rounded-3xl border border-slate-200 flex items-center justify-between shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+                          <User className="w-6 h-6" />
                         </div>
                         <div>
-                          <p className={`text-sm font-bold ${selectedChildren.includes(child.id) ? "text-indigo-600" : "text-slate-700"}`}>
-                            {child.name}
+                          <p className="text-sm font-bold text-slate-900">{child.name}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                            {new Date().getFullYear() - new Date(child.birthDate).getFullYear()} anos
                           </p>
                         </div>
-                      </button>
-                    ))}
+                      </div>
+                      <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
 
-              <button
-                onClick={async () => {
-                  await handleCheckIn();
-                  setMobileStep("success");
-                }}
-                disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : "Confirmar Check-in"}
-              </button>
-            </div>
-          )}
+                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <PlusCircle className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Adicionar Criança</h3>
+                  </div>
+                  
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    await handleAddChild({
+                      name: formData.get('name') as string,
+                      birthDate: formData.get('birthDate') as string,
+                      guardianId: selectedGuardian.id,
+                      allergies: formData.get('allergies') as string,
+                      notes: formData.get('notes') as string,
+                    });
+                    e.currentTarget.reset();
+                  }} className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                      <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm font-medium" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                        <input name="birthDate" required type="date" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm font-medium" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
+                      <input name="allergies" placeholder="Ex: Alergia a amendoim, lactose..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm font-medium" />
+                    </div>
+                    <button type="submit" disabled={submitting} className="w-full py-4 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                      {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-4 h-4" /> Adicionar Criança</>}
+                    </button>
+                  </form>
+                </div>
 
-          {mobileStep === "success" && (
-            <div className="text-center space-y-6 py-8">
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-12 h-12" />
+                <button 
+                  onClick={() => setMobileStep("selection")}
+                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200"
+                >
+                  Finalizar e Ir para Check-in
+                </button>
               </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-slate-900">Check-in Realizado!</h2>
-                <p className="text-sm text-slate-500">As etiquetas estão sendo impressas na recepção.</p>
-                {rooms.find(r => r.id === selectedRoomId) && (
-                  <div className="mt-4 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-1">Sala Designada:</p>
-                    <p className="text-lg font-bold text-slate-900">{rooms.find(r => r.id === selectedRoomId)?.name}</p>
-                    {rooms.find(r => r.id === selectedRoomId)?.teacher && (
-                      <p className="text-sm text-slate-600 mt-1">Professor(a): {rooms.find(r => r.id === selectedRoomId)?.teacher}</p>
+            )}
+
+            {mobileStep === "selection" && selectedGuardian && (
+              <div className="space-y-8 pt-4">
+                {/* Progress Indicator */}
+                <div className="flex items-center gap-2 px-2">
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                  <div className="flex-1 h-1.5 bg-indigo-600 rounded-full" />
+                </div>
+
+                {/* Guardian Info Card */}
+                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-100">
+                      {selectedGuardian.name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-base font-bold text-slate-900">{selectedGuardian.name}</p>
+                      <p className="text-xs text-indigo-600 font-bold uppercase tracking-widest">{selectedGuardian.phone}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setMobileStep("phone")}
+                    className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                  >
+                    <Edit className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Room Selection */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">1. Selecione a Sala</h3>
+                    {selectedRoomId && (
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Selecionado
+                      </span>
                     )}
                   </div>
-                )}
+                  <div className="grid grid-cols-2 gap-3">
+                    {rooms.map(room => (
+                      <button
+                        key={room.id}
+                        onClick={() => setSelectedRoomId(room.id)}
+                        className={`p-4 rounded-3xl border-2 text-left transition-all relative overflow-hidden group ${
+                          selectedRoomId === room.id
+                            ? "bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-200"
+                            : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                        }`}
+                      >
+                        <div className={`absolute -right-4 -top-4 w-12 h-12 rounded-full transition-all ${
+                          selectedRoomId === room.id ? "bg-white/10" : "bg-slate-50 group-hover:bg-indigo-50"
+                        }`} />
+                        <p className={`text-sm font-bold mb-1 ${selectedRoomId === room.id ? "text-white" : "text-slate-900"}`}>
+                          {room.name}
+                        </p>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest ${selectedRoomId === room.id ? "text-white/70" : "text-slate-400"}`}>
+                          {room.minAge}-{room.maxAge} anos
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Children Selection */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">2. Selecione as Crianças</h3>
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
+                      {selectedChildren.length} Selecionadas
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {children
+                      .filter(c => c.guardianId === selectedGuardian.id)
+                      .map(child => (
+                        <button
+                          key={child.id}
+                          onClick={() => {
+                            if (selectedChildren.includes(child.id)) {
+                              setSelectedChildren(selectedChildren.filter(id => id !== child.id));
+                            } else {
+                              setSelectedChildren([...selectedChildren, child.id]);
+                            }
+                          }}
+                          className={`w-full p-4 rounded-[2rem] border-2 transition-all text-left flex items-center justify-between group ${
+                            selectedChildren.includes(child.id)
+                              ? "bg-white border-indigo-600 shadow-xl shadow-indigo-100 ring-4 ring-indigo-50"
+                              : "bg-white border-slate-200 hover:border-indigo-200"
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-14 h-14 rounded-2xl overflow-hidden border-2 transition-all ${
+                              selectedChildren.includes(child.id) ? "border-indigo-600" : "border-slate-100"
+                            }`}>
+                              {child.photo ? (
+                                <img src={child.photo} alt={child.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-300">
+                                  <User className="w-6 h-6" />
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <p className={`text-base font-bold ${selectedChildren.includes(child.id) ? "text-indigo-600" : "text-slate-900"}`}>
+                                {child.name}
+                              </p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                {new Date().getFullYear() - new Date(child.birthDate).getFullYear()} anos
+                              </p>
+                            </div>
+                          </div>
+                          <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                            selectedChildren.includes(child.id)
+                              ? "bg-indigo-600 border-indigo-600 text-white"
+                              : "border-slate-200 text-transparent"
+                          }`}>
+                            <Check className="w-4 h-4" />
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    await handleCheckIn();
+                    setMobileStep("success");
+                  }}
+                  disabled={selectedChildren.length === 0 || !selectedRoomId || submitting}
+                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-3"
+                >
+                  {submitting ? (
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-5 h-5" />
+                      Confirmar Check-in
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setMobileStep("phone");
-                  setMobilePhone("");
-                  setSelectedGuardian(null);
-                  setSelectedChildren([]);
-                  setSelectedRoomId("");
-                }}
-                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-slate-800 transition-all"
-              >
-                Fazer outro Check-in
-              </button>
-            </div>
-          )}
-        </motion.div>
+            )}
+
+            {mobileStep === "success" && (
+              <div className="text-center space-y-8 py-12">
+                <div className="relative">
+                  <motion.div 
+                    initial={{ scale: 0, rotate: -180 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                    className="w-32 h-32 bg-emerald-100 text-emerald-600 rounded-[3rem] flex items-center justify-center mx-auto relative z-10 shadow-xl shadow-emerald-100"
+                  >
+                    <CheckCircle2 className="w-16 h-16" />
+                  </motion.div>
+                  <motion.div 
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1.5, opacity: 0 }}
+                    transition={{ repeat: Infinity, duration: 2, ease: "easeOut" }}
+                    className="absolute inset-0 bg-emerald-400 rounded-full"
+                  />
+                </div>
+                
+                <div className="space-y-3">
+                  <h2 className="text-4xl font-black text-slate-900 tracking-tight">Tudo Pronto!</h2>
+                  <p className="text-base text-slate-500 max-w-[280px] mx-auto font-medium">
+                    Check-in realizado com sucesso. Apresente o ticket abaixo na recepção.
+                  </p>
+                </div>
+
+                {/* Digital Ticket */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="bg-white rounded-[3rem] border-2 border-slate-100 shadow-2xl overflow-hidden relative"
+                  id="digital-ticket"
+                >
+                  <div className="absolute -left-4 top-[60%] -translate-y-1/2 w-8 h-8 bg-slate-50 rounded-full border-r-2 border-slate-100 z-10" />
+                  <div className="absolute -right-4 top-[60%] -translate-y-1/2 w-8 h-8 bg-slate-50 rounded-full border-l-2 border-slate-100 z-10" />
+                  
+                  <div className="p-8 bg-indigo-600 text-white text-left relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
+                    <div className="flex justify-between items-start mb-6 relative z-10">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Sala Designada</p>
+                        <h3 className="text-2xl font-black mt-1">{rooms.find(r => r.id === selectedRoomId)?.name}</h3>
+                      </div>
+                      <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
+                        <Baby className="w-6 h-6" />
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-end relative z-10">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Data e Hora</p>
+                        <p className="text-sm font-bold mt-1">{new Date().toLocaleDateString('pt-BR')} • {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">Crianças</p>
+                        <p className="text-xl font-black mt-1">{selectedChildren.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-8 border-t-2 border-dashed border-slate-100 relative">
+                    <div className="space-y-4">
+                      {selectedChildren.map(childId => {
+                        const child = children.find(c => c.id === childId);
+                        return (
+                          <div key={childId} className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-indigo-600 font-black text-xs border border-slate-100">
+                                {child?.name.charAt(0)}
+                              </div>
+                              <p className="text-sm font-bold text-slate-800">{child?.name}</p>
+                            </div>
+                            <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase rounded-md border border-emerald-100">Confirmado</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    <div className="mt-8 flex flex-col items-center gap-6">
+                      <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-inner">
+                        <QRCodeSVG 
+                          value={`CHECKIN-${selectedGuardian.id}-${selectedRoomId}-${selectedChildren.join(',')}`}
+                          size={140}
+                          level="H"
+                        />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Código de Segurança</p>
+                        <p className="text-xs font-mono font-bold text-slate-600 mt-1">#{(Math.random() * 10000).toFixed(0).padStart(4, '0')}</p>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => {
+                      const roomName = rooms.find(r => r.id === selectedRoomId)?.name || "Sala Geral";
+                      const childNames = selectedChildren.map(id => children.find(c => c.id === id)?.name).join(", ");
+                      const text = `*Check-in Kids Realizado!*\n\nSala: ${roomName}\nCrianças: ${childNames}\nData: ${new Date().toLocaleDateString('pt-BR')}\n\n_Apresente este ticket na recepção._`;
+                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                    }}
+                    className="py-4 bg-emerald-50 text-emerald-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-100 transition-all flex items-center justify-center gap-2 border border-emerald-100"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    WhatsApp
+                  </button>
+                  <button
+                    onClick={() => {
+                      addNotification("info", "Gerando PDF do seu ticket...");
+                    }}
+                    className="py-4 bg-slate-50 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center justify-center gap-2 border border-slate-100"
+                  >
+                    <Download className="w-4 h-4" />
+                    Salvar PDF
+                  </button>
+                </div>
+
+                <div className="pt-4 space-y-4">
+                  <button
+                    onClick={() => {
+                      setMobileStep("phone");
+                      setMobilePhone("");
+                      setSelectedGuardian(null);
+                      setSelectedChildren([]);
+                      setSelectedRoomId("");
+                    }}
+                    className="w-full py-6 bg-slate-900 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-slate-800 transition-all shadow-2xl shadow-slate-200 active:scale-95"
+                  >
+                    Fazer novo Check-in
+                  </button>
+                  <div className="flex items-center justify-center gap-2 text-slate-400">
+                    <Shield className="w-4 h-4" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">
+                      Ambiente Seguro e Protegido
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -5184,7 +5965,7 @@ export default function App() {
                       <h3 className="text-lg font-bold text-slate-900">Configurações do Kids</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       {/* Quick Links */}
                       <div className="space-y-4">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Acesso Rápido</h4>
@@ -5214,6 +5995,66 @@ export default function App() {
                             </div>
                             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-600 transition-colors" />
                           </button>
+                        </div>
+                      </div>
+
+                      {/* External Links */}
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Links Externos</h4>
+                        <div className="grid grid-cols-1 gap-2">
+                          <a 
+                            href="https://tesouraria-igreja.vercel.app/#responsaveis"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-200 transition-all group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
+                                <User className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-sm font-bold text-slate-700 block">App de Pais</span>
+                                <span className="text-[10px] text-slate-400">Check-in Móvel</span>
+                              </div>
+                            </div>
+                            <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-colors" />
+                          </a>
+
+                          <a 
+                            href="https://tesouraria-igreja.vercel.app/#lider"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600">
+                                <Shield className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-sm font-bold text-slate-700 block">App para Líderes</span>
+                                <span className="text-[10px] text-slate-400">Líder de Sala</span>
+                              </div>
+                            </div>
+                            <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-600 transition-colors" />
+                          </a>
+
+                          <a 
+                            href="https://tesouraria-igreja.vercel.app/#cadastro"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-amber-200 transition-all group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600">
+                                <PlusCircle className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-sm font-bold text-slate-700 block">Cadastro Público</span>
+                                <span className="text-[10px] text-slate-400">Novas Crianças</span>
+                              </div>
+                            </div>
+                            <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-amber-600 transition-colors" />
+                          </a>
                         </div>
                       </div>
 

@@ -103,6 +103,8 @@ try {
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
       email TEXT,
+      isTeacher INTEGER DEFAULT 0,
+      assignedRoomIds TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -178,6 +180,14 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE attendance ADD COLUMN responsible TEXT");
+} catch (e) {}
+
+// Migration for guardians table
+try {
+  db.exec("ALTER TABLE guardians ADD COLUMN isTeacher INTEGER DEFAULT 0");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE guardians ADD COLUMN assignedRoomIds TEXT");
 } catch (e) {}
 
 // Helper for Firestore with timeout
@@ -584,11 +594,37 @@ app.use(express.json());
   app.post("/api/guardians", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      const { id, name, phone, email } = req.body;
-      db.prepare("INSERT INTO guardians (id, name, phone, email) VALUES (?, ?, ?, ?)").run(id, name, phone, email);
+      const { id, name, phone, email, isTeacher, assignedRoomIds } = req.body;
+      db.prepare("INSERT INTO guardians (id, name, phone, email, isTeacher, assignedRoomIds) VALUES (?, ?, ?, ?, ?, ?)").run(
+        id, name, phone, email, isTeacher ? 1 : 0, JSON.stringify(assignedRoomIds || [])
+      );
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to save guardian" });
+    }
+  });
+
+  app.patch("/api/guardians/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const fields = Object.keys(updates);
+      if (fields.length === 0) return res.json({ success: true });
+
+      const setClause = fields.map(f => `${f} = ?`).join(", ");
+      const values = fields.map(f => {
+        if (f === 'isTeacher') return updates[f] ? 1 : 0;
+        if (f === 'assignedRoomIds') return JSON.stringify(updates[f] || []);
+        return updates[f];
+      });
+
+      db.prepare(`UPDATE guardians SET ${setClause} WHERE id = ?`).run(...values, id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating guardian:", error);
+      res.status(500).json({ error: "Failed to update guardian" });
     }
   });
 
@@ -612,6 +648,26 @@ app.use(express.json());
     }
   });
 
+  app.patch("/api/children/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const fields = Object.keys(updates);
+      if (fields.length === 0) return res.json({ success: true });
+
+      const setClause = fields.map(f => `${f} = ?`).join(", ");
+      const values = fields.map(f => updates[f]);
+
+      db.prepare(`UPDATE children SET ${setClause} WHERE id = ?`).run(...values, id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating child:", error);
+      res.status(500).json({ error: "Failed to update child" });
+    }
+  });
+
   app.get("/api/rooms", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
@@ -629,6 +685,26 @@ app.use(express.json());
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to save room" });
+    }
+  });
+
+  app.patch("/api/rooms/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const fields = Object.keys(updates);
+      if (fields.length === 0) return res.json({ success: true });
+
+      const setClause = fields.map(f => `${f} = ?`).join(", ");
+      const values = fields.map(f => updates[f]);
+
+      db.prepare(`UPDATE rooms SET ${setClause} WHERE id = ?`).run(...values, id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating room:", error);
+      res.status(500).json({ error: "Failed to update room" });
     }
   });
 

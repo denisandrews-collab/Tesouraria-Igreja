@@ -559,6 +559,8 @@ export default function App() {
     if (!isFirebaseEnabled || !auth) {
       if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
         setUser({ email: loginEmail, uid: "demo-user" } as any);
+        setUserRole("master");
+        localStorage.setItem("userRole", "master");
         addNotification("success", "Login de demonstração realizado.");
         return;
       }
@@ -1226,7 +1228,14 @@ export default function App() {
       const guardiansRes = await fetch(`/api/guardians?t=${Date.now()}`);
       if (guardiansRes.ok) {
         const data = await guardiansRes.json();
-        if (Array.isArray(data)) setGuardians(data);
+        if (Array.isArray(data)) {
+          const parsedGuardians = data.map((g: any) => ({
+            ...g,
+            isTeacher: g.isTeacher === 1,
+            assignedRoomIds: typeof g.assignedRoomIds === 'string' ? JSON.parse(g.assignedRoomIds) : (g.assignedRoomIds || [])
+          }));
+          setGuardians(parsedGuardians);
+        }
       }
 
       const childrenRes = await fetch(`/api/children?t=${Date.now()}`);
@@ -1624,7 +1633,7 @@ export default function App() {
       if (db && isFirebaseEnabled) {
         try {
           await updateDoc(doc(db, "guardians", id), guardianData);
-          fetchEntries();
+          await fetchEntries();
           setShowEditGuardianModal(false);
           setEditingGuardian(null);
           addNotification("success", "Responsável atualizado com sucesso.");
@@ -1640,10 +1649,13 @@ export default function App() {
         body: JSON.stringify(guardianData)
       });
       if (response.ok) {
-        fetchEntries();
+        await fetchEntries();
         setShowEditGuardianModal(false);
         setEditingGuardian(null);
         addNotification("success", "Responsável atualizado com sucesso.");
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
+        addNotification("error", `Erro ao atualizar responsável: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
       console.error("Error updating guardian:", error);
@@ -1659,7 +1671,7 @@ export default function App() {
       if (db && isFirebaseEnabled) {
         try {
           await updateDoc(doc(db, "children", id), childData);
-          fetchEntries();
+          await fetchEntries();
           setShowEditChildModal(false);
           setEditingChild(null);
           addNotification("success", "Criança atualizada com sucesso.");
@@ -1675,10 +1687,13 @@ export default function App() {
         body: JSON.stringify(childData)
       });
       if (response.ok) {
-        fetchEntries();
+        await fetchEntries();
         setShowEditChildModal(false);
         setEditingChild(null);
         addNotification("success", "Criança atualizada com sucesso.");
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
+        addNotification("error", `Erro ao atualizar criança: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
       console.error("Error updating child:", error);
@@ -1694,7 +1709,7 @@ export default function App() {
       if (db && isFirebaseEnabled) {
         try {
           await updateDoc(doc(db, "rooms", id), roomData);
-          fetchEntries();
+          await fetchEntries();
           setShowEditRoomModal(false);
           setEditingRoom(null);
           addNotification("success", "Sala atualizada com sucesso.");
@@ -1710,10 +1725,13 @@ export default function App() {
         body: JSON.stringify(roomData)
       });
       if (response.ok) {
-        fetchEntries();
+        await fetchEntries();
         setShowEditRoomModal(false);
         setEditingRoom(null);
         addNotification("success", "Sala atualizada com sucesso.");
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
+        addNotification("error", `Erro ao atualizar sala: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
       console.error("Error updating room:", error);

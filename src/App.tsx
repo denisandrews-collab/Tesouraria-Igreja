@@ -2649,6 +2649,13 @@ export default function App() {
                 </span>
               </button>
             )}
+            <button
+              onClick={handleLogout}
+              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-100 transition-all shadow-sm group"
+              title="Sair"
+            >
+              <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+            </button>
             <button 
               onClick={() => {
                 setSelectedRoomForLeader(null);
@@ -4579,6 +4586,14 @@ export default function App() {
               <Clock className="w-4 h-4" />
               <span className="text-[10px] font-bold tabular-nums">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-red-600 hover:border-red-200 transition-all shadow-sm group"
+              title="Sair do Sistema"
+            >
+              <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Sair</span>
+            </button>
           </div>
         </header>
 

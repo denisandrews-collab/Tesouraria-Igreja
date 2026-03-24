@@ -73,13 +73,15 @@ import {
   LockOpen,
   Megaphone,
   PhoneCall,
-  CreditCard
+  CreditCard,
+  Chrome,
+  Smartphone
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
 import autoTable from "jspdf-autotable";
 import JsBarcode from 'jsbarcode';
-import { db, auth, isFirebaseEnabled } from "./firebase"; // Import Firestore db and status
+import { db, auth, isFirebaseEnabled } from "./firebase";
 import { 
   collection, 
   addDoc, 
@@ -102,6 +104,8 @@ import {
   sendPasswordResetEmail,
   updatePassword,
   signOut, 
+  GoogleAuthProvider,
+  signInWithPopup,
   User as FirebaseUser 
 } from "firebase/auth";
 import { 
@@ -251,6 +255,7 @@ interface LoginScreenProps {
   loginPassword: string;
   setLoginPassword: (val: string) => void;
   handleLogin: (e: React.FormEvent) => void;
+  handleGoogleLogin: () => void;
   handleRegister: (e: React.FormEvent) => void;
   handleForgotPassword: () => void;
   isLoggingIn: boolean;
@@ -269,6 +274,7 @@ const LoginScreen = ({
   loginPassword, 
   setLoginPassword, 
   handleLogin, 
+  handleGoogleLogin,
   handleRegister,
   handleForgotPassword,
   isLoggingIn,
@@ -380,6 +386,29 @@ const LoginScreen = ({
             )}
           </button>
         </form>
+
+        {!isRegistering && isFirebaseEnabled && (
+          <div className="mt-6">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-100"></div>
+              </div>
+              <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
+                <span className="bg-white px-4 text-slate-400">Ou continue com</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={isLoggingIn}
+              className="w-full py-4 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold text-sm shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50"
+            >
+              <Chrome className="w-5 h-5 text-red-500" />
+              Entrar com Google
+            </button>
+          </div>
+        )}
 
         <div className="mt-8 pt-8 border-t border-slate-100 text-center">
           <button
@@ -731,8 +760,8 @@ export default function App() {
       
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
-      } else if (error.code === "auth/configuration-not-found") {
-        message = "O provedor de E-mail/Senha não está ativado no Firebase Console.";
+      } else if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
+        message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, use o Login com Google ou peça ao administrador para ativar o provedor de E-mail/Senha.";
       } else if (error.code === "auth/user-not-found") {
         message = "Usuário não encontrado. Se você ainda não tem uma conta, use a opção 'Cadastre-se agora' abaixo.";
       } else if (error.code === "auth/wrong-password") {
@@ -745,6 +774,31 @@ export default function App() {
         message = "Erro de rede. Verifique sua conexão com a internet.";
       }
       
+      addNotification("error", message, "Falha no Login");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    if (!isFirebaseEnabled || !auth) {
+      addNotification("error", "Firebase não configurado.");
+      return;
+    }
+
+    try {
+      setIsLoggingIn(true);
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      addNotification("success", "Login com Google realizado com sucesso.");
+    } catch (error: any) {
+      console.error("Google Login error:", error);
+      let message = "Erro ao fazer login com Google.";
+      if (error.code === "auth/unauthorized-domain") {
+        message = "Este domínio não está autorizado no Firebase Console.";
+      } else if (error.code === "auth/popup-closed-by-user") {
+        message = "O login foi cancelado.";
+      }
       addNotification("error", message, "Falha no Login");
     } finally {
       setIsLoggingIn(false);
@@ -2532,6 +2586,7 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
@@ -3287,6 +3342,7 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
@@ -3499,6 +3555,7 @@ export default function App() {
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
           handleLogin={handleLogin}
+          handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
           handleForgotPassword={handleForgotPassword}
           isLoggingIn={isLoggingIn}
@@ -4450,6 +4507,7 @@ export default function App() {
         loginPassword={loginPassword}
         setLoginPassword={setLoginPassword}
         handleLogin={handleLogin}
+        handleGoogleLogin={handleGoogleLogin}
         handleRegister={handleRegister}
         handleForgotPassword={handleForgotPassword}
         isLoggingIn={isLoggingIn}

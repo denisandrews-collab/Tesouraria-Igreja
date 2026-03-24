@@ -50,7 +50,7 @@ service cloud.firestore {
         (
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master') ||
-          request.auth.token.email == "admin@modeloalpha.com.br"
+          (request.auth.token.email == "admin@modeloalpha.com.br" && request.auth.token.email_verified == true)
         );
     }
 
@@ -103,7 +103,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isAdmin() && (request.resource.data.role != 'master' || request.auth.token.email == "admin@modeloalpha.com.br")) || 
+        (isOwner(userId) && request.resource.data.role == resource.data.role)
+      );
       allow delete: if isAdmin();
     }
 

@@ -632,12 +632,10 @@ export default function App() {
       if (firebaseUser) {
         try {
           const profileDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+          let profile: UserProfile | null = null;
+          
           if (profileDoc.exists()) {
-            const profile = profileDoc.data() as UserProfile;
-            setUserProfile(profile);
-            // Sync userRole with profile role
-            setUserRole(profile.role);
-            localStorage.setItem("userRole", profile.role);
+            profile = profileDoc.data() as UserProfile;
           } else {
             // Check if there's a pre-registered profile for this email
             const sanitizedEmail = (firebaseUser.email || "").toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -645,29 +643,37 @@ export default function App() {
             
             if (preDoc.exists()) {
               const preData = preDoc.data();
-              const newProfile: UserProfile = {
+              profile = {
                 uid: firebaseUser.uid,
                 email: firebaseUser.email || "",
                 role: preData.role || "user",
                 permissions: preData.permissions || ["dashboard"]
               };
-              await setDoc(doc(db, "users", firebaseUser.uid), newProfile);
+              await setDoc(doc(db, "users", firebaseUser.uid), profile);
               await deleteDoc(doc(db, "users", sanitizedEmail)); // Clean up pre-doc
-              setUserProfile(newProfile);
-              setUserRole(newProfile.role);
-              localStorage.setItem("userRole", newProfile.role);
             } else {
-              const defaultProfile: UserProfile = {
+              profile = {
                 uid: firebaseUser.uid,
                 email: firebaseUser.email || "",
                 role: "user",
                 permissions: ["dashboard"]
               };
-              setUserProfile(defaultProfile);
-              setUserRole("user");
-              localStorage.setItem("userRole", "user");
-              await setDoc(doc(db, "users", firebaseUser.uid), defaultProfile);
+              await setDoc(doc(db, "users", firebaseUser.uid), profile);
             }
+          }
+
+          // Force master role for specific email
+          if (firebaseUser.email === "admin@modeloalpha.com.br") {
+            if (profile.role !== "master") {
+              profile.role = "master";
+              await updateDoc(doc(db, "users", firebaseUser.uid), { role: "master" });
+            }
+          }
+
+          if (profile) {
+            setUserProfile(profile);
+            setUserRole(profile.role);
+            localStorage.setItem("userRole", profile.role);
           }
 
           // Also fetch all users for permission management - only for master
@@ -1594,6 +1600,10 @@ export default function App() {
 
   const updateUserRole = async (uid: string, newRole: "master" | "junior" | "user") => {
     if (userRole !== "master") return;
+    if (newRole === "master") {
+      addNotification("error", "O cargo Master não pode ser atribuído manualmente.");
+      return;
+    }
     try {
       await updateDoc(doc(db, "users", uid), { role: newRole });
       addNotification("success", "Permissão atualizada com sucesso!");
@@ -1605,6 +1615,10 @@ export default function App() {
 
   const inviteUser = async () => {
     if (!newUserEmail || userRole !== "master") return;
+    if (newUserRole === "master") {
+      addNotification("error", "O cargo Master não pode ser atribuído manualmente.");
+      return;
+    }
     try {
       setIsAddingUser(true);
       const q = query(collection(db, "users"), where("email", "==", newUserEmail.toLowerCase()));
@@ -2546,11 +2560,9 @@ export default function App() {
       setPinInput(newPin);
       if (newPin.length === 4) {
         if (newPin === "1234") {
-          setUserRole("master");
-          localStorage.setItem("userRole", "master");
-          setShowPinModal(false);
-          setPinInput("");
-          setPinError(false);
+          // Master PIN removed as per request
+          setPinError(true);
+          addNotification("error", "O PIN de Master foi desativado. Use o login oficial.");
         } else if (newPin === "4321") {
           setUserRole("junior");
           localStorage.setItem("userRole", "junior");
@@ -7210,7 +7222,6 @@ export default function App() {
                                     }}
                                     disabled={userRole !== "master"}
                                   >
-                                    <option value="master">Master</option>
                                     <option value="junior">Junior</option>
                                     <option value="user">User</option>
                                   </select>
@@ -7339,7 +7350,6 @@ export default function App() {
                             >
                               <option value="user">Usuário (Básico)</option>
                               <option value="junior">Junior (Visualizador)</option>
-                              <option value="master">Master (Total)</option>
                             </select>
                             <button
                               onClick={inviteUser}
@@ -7386,7 +7396,6 @@ export default function App() {
                               >
                                 <option value="user">User</option>
                                 <option value="junior">Junior</option>
-                                <option value="master">Master</option>
                               </select>
                               
                               {u.uid !== user?.uid && (

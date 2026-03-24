@@ -583,7 +583,10 @@ export default function App() {
 
   // Consolidate user fetching into a single effect that depends on the authenticated user and their profile
   useEffect(() => {
-    if (user && userProfile && userProfile.role === "master" && db) {
+    // Only attempt to fetch from Firestore if we have a real Firebase user (not a demo user)
+    const isRealFirebaseUser = auth?.currentUser && user?.uid === auth.currentUser.uid;
+    
+    if (isRealFirebaseUser && userProfile && userProfile.role === "master" && db) {
       const unsubscribe = onSnapshot(
         collection(db, "users"), 
         (snapshot) => {
@@ -598,7 +601,7 @@ export default function App() {
     } else {
       setAllUsers([]);
     }
-  }, [user, userProfile, db]);
+  }, [user, userProfile, db, auth?.currentUser]);
 
   useEffect(() => {
     console.log("Firebase status:", isFirebaseEnabled ? "Enabled" : "Disabled");
@@ -895,12 +898,27 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (!auth) return;
+    if (!auth) {
+      setUser(null);
+      setUserProfile(null);
+      setEntries([]);
+      setAttendanceEntries([]);
+      return;
+    }
     try {
       await signOut(auth);
+      setUser(null);
+      setUserProfile(null);
+      setEntries([]);
+      setAttendanceEntries([]);
       addNotification("info", "Você saiu do sistema.");
     } catch (error) {
       console.error("Logout error:", error);
+      // Fallback for demo logout if signOut fails or auth is weird
+      setUser(null);
+      setUserProfile(null);
+      setEntries([]);
+      setAttendanceEntries([]);
     }
   };
 

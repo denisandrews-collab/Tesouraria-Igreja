@@ -738,10 +738,19 @@ export default function App() {
     
     // Fallback for demo/dev - Always allow these credentials for quick testing
     if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
-      setUser({ email: loginEmail, uid: "demo-user" } as any);
+      const demoUser = { email: loginEmail, uid: "demo-user" } as any;
+      const demoProfile: UserProfile = {
+        uid: "demo-user",
+        email: loginEmail,
+        role: "master",
+        permissions: ["dashboard", "calculator", "form", "history", "settings", "attendance", "kids"]
+      };
+      setUser(demoUser);
+      setUserProfile(demoProfile);
       setUserRole("master");
       localStorage.setItem("userRole", "master");
       addNotification("success", "Login de demonstração realizado.");
+      fetchEntries().catch(err => console.error("Error fetching entries after demo login:", err));
       return;
     }
 
@@ -1326,7 +1335,9 @@ export default function App() {
         if (!db || !isFirebaseEnabled || !auth.currentUser) return null;
         try {
           // Only fetch if has basic junior role or is master
-          if (userRole !== "master" && userRole !== "junior") {
+          // Also allow if it's the admin email (to handle initial login state)
+          const isAdminEmail = auth.currentUser.email === "admin@modeloalpha.com.br";
+          if (userRole !== "master" && userRole !== "junior" && !isAdminEmail) {
             console.warn("User does not have permission to fetch entries from Firestore.");
             return null;
           }
@@ -4541,6 +4552,16 @@ export default function App() {
         setUser={setUser}
         addNotification={addNotification}
       />
+    );
+  }
+
+  if (!userProfile) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+        <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-6" />
+        <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Carregando Perfil...</h2>
+        <p className="text-slate-500 text-sm mt-2 font-bold uppercase tracking-widest opacity-50">Sincronizando permissões</p>
+      </div>
     );
   }
 

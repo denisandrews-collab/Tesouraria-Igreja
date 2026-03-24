@@ -397,6 +397,80 @@ const LoginScreen = ({
   );
 };
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-8 text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Ops! Algo deu errado</h2>
+            <p className="text-slate-500 text-sm mb-6">
+              Ocorreu um erro inesperado no aplicativo. Tente recarregar a página.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg hover:bg-indigo-700 transition-all"
+            >
+              Recarregar Aplicativo
+            </button>
+            {process.env.NODE_ENV === 'development' && (
+              <pre className="mt-6 p-4 bg-slate-100 rounded-xl text-left text-[10px] overflow-auto max-h-40">
+                {this.state.error?.toString()}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const APP_VERSION = "1.2.0-kids-ministry";
   const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance" | "kids">("dashboard");
@@ -558,11 +632,15 @@ export default function App() {
             }
           }
 
-          // Also fetch all users for permission management
-          const unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
-            const usersList = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-            setAllUsers(usersList);
-          });
+          // Also fetch all users for permission management - only for master
+          let unsubscribeUsers = () => {};
+          const currentRole = profileDoc.exists() ? (profileDoc.data() as UserProfile).role : "user";
+          if (currentRole === "master") {
+            unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+              const usersList = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+              setAllUsers(usersList);
+            });
+          }
           return () => unsubscribeUsers();
         } catch (error) {
           console.error("Error fetching user profile:", error);
@@ -1133,6 +1211,38 @@ export default function App() {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
+  const handleFirestoreError = (error: any, operationType: OperationType, path: string | null) => {
+    const errInfo: FirestoreErrorInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth?.currentUser?.uid,
+        email: auth?.currentUser?.email,
+        emailVerified: auth?.currentUser?.emailVerified,
+        isAnonymous: auth?.currentUser?.isAnonymous,
+        tenantId: auth?.currentUser?.tenantId,
+        providerInfo: auth?.currentUser?.providerData.map(provider => ({
+          providerId: provider.providerId,
+          displayName: provider.displayName,
+          email: provider.email,
+          photoUrl: provider.photoURL
+        })) || []
+      },
+      operationType,
+      path
+    };
+    
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    
+    let userMessage = "Erro de permissão no banco de dados.";
+    if (errInfo.error.includes("insufficient permissions") || errInfo.error.includes("Permissões ausentes")) {
+      userMessage = "Você não tem permissão para acessar estes dados. Verifique seu nível de acesso.";
+    }
+    
+    addNotification("error", userMessage, "Erro no Banco de Dados");
+    // We don't necessarily want to crash the whole app for a fetch error, 
+    // but we log it for the AIS Agent to see.
+  };
+
   const fetchEntries = async () => {
     try {
       // Check server config first with cache busting
@@ -1148,8 +1258,14 @@ export default function App() {
 
       // Try Firestore with timeout if db is available
       const fetchFromFirestore = async () => {
-        if (!db || !isFirebaseEnabled) return null;
+        if (!db || !isFirebaseEnabled || !auth.currentUser) return null;
         try {
+          // Only fetch if has basic junior role or is master
+          if (userRole !== "master" && userRole !== "junior") {
+            console.warn("User does not have permission to fetch entries from Firestore.");
+            return null;
+          }
+
           const querySnapshot = await getDocs(collection(db, "entries"));
           const querySnapshotAtt = await getDocs(collection(db, "attendance"));
           const querySnapshotLoc = await getDocs(collection(db, "locations"));
@@ -1183,21 +1299,14 @@ export default function App() {
               const docRef = await addDoc(collection(db, "locations"), defaultLoc);
               finalLocations = [{ id: docRef.id, ...defaultLoc }];
             } catch (err) {
-              console.error("Error seeding default location:", err);
+              handleFirestoreError(err, OperationType.WRITE, "locations");
               finalLocations = [{ id: 'temp-default', ...defaultLoc }];
             }
           }
 
           return { entriesData, attendanceData, locationsData: finalLocations };
         } catch (e: any) {
-          console.error("Firestore error details:", e);
-          if (e.message?.includes("Database '(default)' not found")) {
-            setFirebaseStatus("error");
-            console.warn("Firestore Database not created in console.");
-          } else if (e.message?.includes("permission-denied")) {
-            setFirebaseStatus("error");
-            console.warn("Firestore permission denied. Check security rules.");
-          }
+          handleFirestoreError(e, OperationType.LIST, "entries/attendance/locations");
           throw e;
         }
       };

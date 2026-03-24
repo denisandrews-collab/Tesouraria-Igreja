@@ -530,16 +530,6 @@ export default function App() {
   const [selectedGuardian, setSelectedGuardian] = useState<Guardian | null>(null);
   const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
-
-  useEffect(() => {
-    if (userRole === "master" && auth) {
-      const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
-        const usersData = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile));
-        setAllUsers(usersData);
-      });
-      return () => unsubscribe();
-    }
-  }, [userRole, db]);
   const [showAddGuardianModal, setShowAddGuardianModal] = useState(false);
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
@@ -590,6 +580,25 @@ export default function App() {
   const [guardianActiveTab, setGuardianActiveTab] = useState<"home" | "kids" | "history" | "profile">("home");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
+
+  // Consolidate user fetching into a single effect that depends on the authenticated user and their profile
+  useEffect(() => {
+    if (user && userProfile && userProfile.role === "master" && db) {
+      const unsubscribe = onSnapshot(
+        collection(db, "users"), 
+        (snapshot) => {
+          const usersData = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile));
+          setAllUsers(usersData);
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.LIST, "users");
+        }
+      );
+      return () => unsubscribe();
+    } else {
+      setAllUsers([]);
+    }
+  }, [user, userProfile, db]);
 
   useEffect(() => {
     console.log("Firebase status:", isFirebaseEnabled ? "Enabled" : "Disabled");
@@ -662,15 +671,10 @@ export default function App() {
           }
 
           // Also fetch all users for permission management - only for master
-          let unsubscribeUsers = () => {};
-          const currentRole = profileDoc.exists() ? (profileDoc.data() as UserProfile).role : "user";
-          if (currentRole === "master") {
-            unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
-              const usersList = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-              setAllUsers(usersList);
-            });
-          }
-          return () => unsubscribeUsers();
+          // Handled by separate useEffect above
+          
+          // Fetch entries after login
+          fetchEntries().catch(err => console.error("Error fetching entries after login:", err));
         } catch (error) {
           console.error("Error fetching user profile:", error);
         }
@@ -726,15 +730,16 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Fallback for demo/dev if Firebase is disabled
+    // Fallback for demo/dev - Always allow these credentials for quick testing
+    if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
+      setUser({ email: loginEmail, uid: "demo-user" } as any);
+      setUserRole("master");
+      localStorage.setItem("userRole", "master");
+      addNotification("success", "Login de demonstração realizado.");
+      return;
+    }
+
     if (!isFirebaseEnabled || !auth) {
-      if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
-        setUser({ email: loginEmail, uid: "demo-user" } as any);
-        setUserRole("master");
-        localStorage.setItem("userRole", "master");
-        addNotification("success", "Login de demonstração realizado.");
-        return;
-      }
       addNotification("error", "Firebase não configurado. Use admin@modeloalpha.com.br / admin123 para demonstração.");
       return;
     }
@@ -836,7 +841,7 @@ export default function App() {
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
       }
-      if (error.code === "auth/configuration-not-found") {
+      if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
       }
       addNotification("error", message);
@@ -863,7 +868,7 @@ export default function App() {
       let message = "Erro ao enviar e-mail de recuperação.";
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
-      } else if (error.code === "auth/configuration-not-found") {
+      } else if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
       } else if (error.code === "auth/user-not-found") {
         message = "Usuário não encontrado.";

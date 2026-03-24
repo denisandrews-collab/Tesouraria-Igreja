@@ -204,6 +204,7 @@ interface UserProfile {
   email: string;
   role: "master" | "junior" | "user";
   name?: string;
+  permissions?: string[]; // Array of tab IDs: ['dashboard', 'form', 'history', 'attendance', 'kids', 'settings']
 }
 
 interface Notification {
@@ -277,6 +278,8 @@ const LoginScreen = ({
   setUser,
   addNotification
 }: LoginScreenProps) => {
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <motion.div 
@@ -333,13 +336,20 @@ const LoginScreen = ({
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 required
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                className="w-full pl-12 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
                 placeholder="••••••••"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
           </div>
 
@@ -440,6 +450,7 @@ export default function App() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [showPermissionModal, setShowPermissionModal] = useState<{ show: boolean; tabId: string }>({ show: false, tabId: "" });
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -525,7 +536,8 @@ export default function App() {
               const newProfile: UserProfile = {
                 uid: firebaseUser.uid,
                 email: firebaseUser.email || "",
-                role: preData.role || "user"
+                role: preData.role || "user",
+                permissions: preData.permissions || ["dashboard"]
               };
               await setDoc(doc(db, "users", firebaseUser.uid), newProfile);
               await deleteDoc(doc(db, "users", sanitizedEmail)); // Clean up pre-doc
@@ -536,7 +548,8 @@ export default function App() {
               const defaultProfile: UserProfile = {
                 uid: firebaseUser.uid,
                 email: firebaseUser.email || "",
-                role: "user"
+                role: "user",
+                permissions: ["dashboard"]
               };
               setUserProfile(defaultProfile);
               setUserRole("user");
@@ -544,6 +557,13 @@ export default function App() {
               await setDoc(doc(db, "users", firebaseUser.uid), defaultProfile);
             }
           }
+
+          // Also fetch all users for permission management
+          const unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+            const usersList = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+            setAllUsers(usersList);
+          });
+          return () => unsubscribeUsers();
         } catch (error) {
           console.error("Error fetching user profile:", error);
         }
@@ -565,6 +585,36 @@ export default function App() {
       }
     }
   }, [user, isMobileCheckin, guardians, selectedGuardian]);
+
+  const hasPermission = (tabId: string) => {
+    if (!userProfile) return false;
+    if (userProfile.role === "master") return true;
+    
+    // History and Settings are master-only as per request
+    if (tabId === "history" || tabId === "settings") return false;
+    
+    return userProfile.permissions?.includes(tabId) || false;
+  };
+
+  const toggleUserPermission = async (userId: string, tabId: string) => {
+    if (userRole !== "master") return;
+    
+    const targetUser = allUsers.find(u => u.uid === userId);
+    if (!targetUser) return;
+
+    const currentPermissions = targetUser.permissions || [];
+    const newPermissions = currentPermissions.includes(tabId)
+      ? currentPermissions.filter(p => p !== tabId)
+      : [...currentPermissions, tabId];
+
+    try {
+      await updateDoc(doc(db, "users", userId), { permissions: newPermissions });
+      addNotification("success", `Permissão ${currentPermissions.includes(tabId) ? "removida" : "adicionada"} com sucesso.`);
+    } catch (error) {
+      console.error("Error updating permissions:", error);
+      addNotification("error", "Erro ao atualizar permissões.");
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -600,14 +650,24 @@ export default function App() {
     } catch (error: any) {
       console.error("Login error:", error);
       let message = "Erro ao fazer login. Verifique suas credenciais.";
+      
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
       } else if (error.code === "auth/configuration-not-found") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console.";
-      } else if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
-        message = "E-mail ou senha incorretos.";
+      } else if (error.code === "auth/user-not-found") {
+        message = "Usuário não encontrado. Se você ainda não tem uma conta, use a opção 'Cadastre-se agora' abaixo.";
+      } else if (error.code === "auth/wrong-password") {
+        message = "Senha incorreta. Verifique se digitou corretamente.";
+      } else if (error.code === "auth/invalid-credential") {
+        message = "Credenciais inválidas. Verifique seu e-mail e senha.";
+      } else if (error.code === "auth/too-many-requests") {
+        message = "Muitas tentativas sem sucesso. Sua conta foi bloqueada temporariamente. Tente novamente mais tarde.";
+      } else if (error.code === "auth/network-request-failed") {
+        message = "Erro de rede. Verifique sua conexão com a internet.";
       }
-      addNotification("error", message);
+      
+      addNotification("error", message, "Falha no Login");
     } finally {
       setIsLoggingIn(false);
     }
@@ -4355,6 +4415,19 @@ export default function App() {
           </div>
         </header>
 
+        {/* Header with Access Management */}
+        {userRole === "master" && (
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setShowPermissionModal({ show: true, tabId: "dashboard" })}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              <Shield className="w-4 h-4" />
+              GERENCIAR ACESSO
+            </button>
+          </div>
+        )}
+
         {/* Summary Stats - Bento Grid Style */}
         {(userRole === "master" || userRole === "junior") ? (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 print:grid-cols-3 print:gap-4">
@@ -4978,17 +5051,28 @@ export default function App() {
               className="max-w-2xl mx-auto w-full"
             >
               <section className="bg-white p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] shadow-sm border border-slate-200/60">
-                <div className="flex items-center gap-4 mb-6 md:mb-8">
-                  <button 
-                    onClick={() => setActiveTab("dashboard")}
-                    className="p-2 -ml-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <PlusCircle className="w-5 h-5 text-indigo-600" />
-                    <h2 className="text-lg md:text-xl font-bold text-slate-900">Efetuar Registro</h2>
+                <div className="flex items-center justify-between gap-4 mb-6 md:mb-8">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setActiveTab("dashboard")}
+                      className="p-2 -ml-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <PlusCircle className="w-5 h-5 text-indigo-600" />
+                      <h2 className="text-lg md:text-xl font-bold text-slate-900">Efetuar Registro</h2>
+                    </div>
                   </div>
+                  {userRole === "master" && (
+                    <button
+                      onClick={() => setShowPermissionModal({ show: true, tabId: "form" })}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                    >
+                      <Shield className="w-4 h-4" />
+                      ACESSO
+                    </button>
+                  )}
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5 md:space-y-6">
@@ -5710,9 +5794,20 @@ export default function App() {
               </div>
 
               <section className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-200/60">
-                <div className="flex items-center gap-2 mb-8">
-                  <Users className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg md:text-xl font-bold text-slate-900">Contagem de Pessoas</h2>
+                <div className="flex items-center justify-between gap-4 mb-8">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-600" />
+                    <h2 className="text-lg md:text-xl font-bold text-slate-900">Contagem de Pessoas</h2>
+                  </div>
+                  {userRole === "master" && (
+                    <button
+                      onClick={() => setShowPermissionModal({ show: true, tabId: "attendance" })}
+                      className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                    >
+                      <Shield className="w-4 h-4" />
+                      ACESSO
+                    </button>
+                  )}
                 </div>
 
                 <form onSubmit={handleSubmitAttendance} className="space-y-8">
@@ -6192,6 +6287,24 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                    <Baby className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900">Ministério Kids</h2>
+                </div>
+                {userRole === "master" && (
+                  <button
+                    onClick={() => setShowPermissionModal({ show: true, tabId: "kids" })}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                  >
+                    <Shield className="w-4 h-4" />
+                    ACESSO
+                  </button>
+                )}
+              </div>
+
               {/* Kids Sub-tabs */}
               <div className="flex bg-white/50 backdrop-blur-sm p-1 rounded-2xl border border-slate-200/60 overflow-x-auto no-scrollbar">
                 {[
@@ -7201,6 +7314,24 @@ export default function App() {
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Segurança e Acesso</h4>
                     <div className="space-y-4">
+                      {userRole === "master" && (
+                        <button 
+                          onClick={() => setShowPermissionModal({ show: true, tabId: "settings" })}
+                          className="w-full bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex items-center justify-between group hover:bg-indigo-100 transition-all"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                              <Shield className="w-5 h-5 text-indigo-600" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-sm font-bold text-indigo-900">Gerenciar Acesso</p>
+                              <p className="text-[10px] text-indigo-600 font-medium">Controle quem pode acessar cada aba.</p>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-indigo-400 transition-transform group-hover:translate-x-1" />
+                        </button>
+                      )}
+
                       <button 
                         onClick={() => setShowChangePasswordModal(true)}
                         className="w-full bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-all"
@@ -7963,65 +8094,77 @@ export default function App() {
           <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/90 to-transparent z-10 pointer-events-none md:hidden" />
           
           <div className="flex items-center justify-start md:justify-center overflow-x-auto no-scrollbar gap-8 px-8 py-3 snap-x touch-pan-x">
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "dashboard" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <LayoutDashboard className={`w-6 h-6 ${activeTab === "dashboard" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Início</span>
-          </button>
+          {hasPermission("dashboard") && (
+            <button
+              onClick={() => setActiveTab("dashboard")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "dashboard" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <LayoutDashboard className={`w-6 h-6 ${activeTab === "dashboard" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Início</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("form")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "form" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <PlusCircle className={`w-6 h-6 ${activeTab === "form" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Registro</span>
-          </button>
+          {hasPermission("form") && (
+            <button
+              onClick={() => setActiveTab("form")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "form" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <PlusCircle className={`w-6 h-6 ${activeTab === "form" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Registro</span>
+            </button>
+          )}
           
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <History className={`w-6 h-6 ${activeTab === "history" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
-          </button>
+          {hasPermission("history") && (
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "history" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <History className={`w-6 h-6 ${activeTab === "history" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Histórico</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("attendance")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "attendance" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <Users className={`w-6 h-6 ${activeTab === "attendance" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Pessoas</span>
-          </button>
+          {hasPermission("attendance") && (
+            <button
+              onClick={() => setActiveTab("attendance")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "attendance" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <Users className={`w-6 h-6 ${activeTab === "attendance" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Pessoas</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("kids")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "kids" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <Baby className={`w-6 h-6 ${activeTab === "kids" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Kids</span>
-          </button>
+          {hasPermission("kids") && (
+            <button
+              onClick={() => setActiveTab("kids")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "kids" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <Baby className={`w-6 h-6 ${activeTab === "kids" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Kids</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("settings")}
-            className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
-              activeTab === "settings" ? "text-indigo-600 scale-110" : "text-slate-400"
-            }`}
-          >
-            <RotateCcw className={`w-6 h-6 ${activeTab === "settings" ? "fill-indigo-50" : ""}`} />
-            <span className="text-[10px] font-bold uppercase tracking-tighter">Ajustes</span>
-          </button>
+          {hasPermission("settings") && (
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={`flex flex-col items-center gap-1 transition-all duration-200 flex-shrink-0 snap-center ${
+                activeTab === "settings" ? "text-indigo-600 scale-110" : "text-slate-400"
+              }`}
+            >
+              <RotateCcw className={`w-6 h-6 ${activeTab === "settings" ? "fill-indigo-50" : ""}`} />
+              <span className="text-[10px] font-bold uppercase tracking-tighter">Ajustes</span>
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -8377,6 +8520,100 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Permission Management Modal */}
+      <AnimatePresence>
+        {showPermissionModal.show && (
+          <div className="fixed inset-0 z-[700] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPermissionModal({ show: false, tabId: "" })}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Gerenciar Acesso</h2>
+                    <p className="text-xs text-slate-500 font-medium">Aba: {showPermissionModal.tabId.toUpperCase()}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPermissionModal({ show: false, tabId: "" })}
+                  className="p-2 hover:bg-white rounded-xl transition-colors text-slate-400 shadow-sm"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto space-y-4">
+                <p className="text-xs text-slate-500 font-medium mb-4">
+                  Selecione os usuários que podem acessar esta aba. Usuários Master têm acesso total por padrão.
+                </p>
+                
+                {allUsers.filter(u => u.role !== "master").length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+                    <p className="text-sm text-slate-400 font-medium">Nenhum usuário comum encontrado.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {allUsers.filter(u => u.role !== "master").map(u => {
+                      const hasAccess = u.permissions?.includes(showPermissionModal.tabId);
+                      return (
+                        <button
+                          key={u.uid}
+                          onClick={() => toggleUserPermission(u.uid, showPermissionModal.tabId)}
+                          className={`w-full p-4 rounded-2xl border transition-all flex items-center justify-between group ${
+                            hasAccess 
+                              ? "bg-indigo-50 border-indigo-100 text-indigo-900" 
+                              : "bg-white border-slate-100 text-slate-600 hover:border-slate-200"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                              hasAccess ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200"
+                            }`}>
+                              <User className="w-5 h-5" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-sm font-bold">{u.name || u.email.split('@')[0]}</p>
+                              <p className="text-[10px] font-medium opacity-60">{u.email}</p>
+                            </div>
+                          </div>
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                            hasAccess ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-200"
+                          }`}>
+                            {hasAccess && <Check className="w-4 h-4" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-8 bg-slate-50 border-t border-slate-100">
+                <button
+                  onClick={() => setShowPermissionModal({ show: false, tabId: "" })}
+                  className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all shadow-sm"
+                >
+                  Fechar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

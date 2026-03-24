@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - role: string (required, 'master', 'junior', 'user')
+    //   - permissions: list (optional, list of tab IDs)
+    //
+    // Collection: entries
+    // Document ID: entryId
+    // Fields:
+    //   - amount: number (required)
+    //   - type: string (required, 'Dízimo', 'Oferta')
+    //   - date: string (required, date format)
+    //   - period: string (required, 'Manhã', 'Tarde', 'Noite')
+    //   - treasurer: string (required)
+    //   - timestamp: timestamp (optional)
+    //
+    // Collection: attendance
+    // Document ID: attendanceId
+    // Fields:
+    //   - date: string (required, date format)
+    //   - period: string (required, 'Manhã', 'Tarde', 'Noite')
+    //   - responsible: string (required)
+    //   - counts: map (required)
+    //   - timestamp: timestamp (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master' ||
+          (request.auth.token.email == "admin@modeloalpha.com.br" && request.auth.token.email_verified == true));
+    }
+
+    function isJunior() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'junior' || isAdmin());
+    }
+
+    function hasPermission(tabId) {
+      return isAuthenticated() &&
+        (isAdmin() || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasAny([tabId]));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['master', 'junior', 'user'];
+    }
+
+    function isValidEntry(data) {
+      return data.keys().hasAll(['amount', 'type', 'date', 'period', 'treasurer']) &&
+             data.amount is number && data.amount > 0 &&
+             data.type in ['Dízimo', 'Oferta'] &&
+             data.date is string &&
+             data.period in ['Manhã', 'Tarde', 'Noite'] &&
+             data.treasurer is string && data.treasurer.size() > 0;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['date', 'period', 'responsible', 'counts']) &&
+             data.date is string &&
+             data.period in ['Manhã', 'Tarde', 'Noite'] &&
+             data.responsible is string && data.responsible.size() > 0 &&
+             data.counts is map;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+      allow delete: if isAdmin();
+    }
+
+    match /entries/{entryId} {
+      allow read: if isJunior();
+      allow create: if hasPermission('form');
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if hasPermission('attendance') || isJunior();
+      allow create: if hasPermission('attendance');
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

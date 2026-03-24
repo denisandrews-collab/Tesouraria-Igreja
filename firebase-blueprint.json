@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile and permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["master", "junior", "user"] },
+        "permissions": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Entry": {
+      "title": "Financial Entry",
+      "description": "A financial transaction record",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["Dízimo", "Oferta"] },
+        "date": { "type": "string", "format": "date" },
+        "period": { "type": "string", "enum": ["Manhã", "Tarde", "Noite"] },
+        "treasurer": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "type", "date", "period", "treasurer"]
+    },
+    "Attendance": {
+      "title": "Attendance Record",
+      "description": "A record of people present in services",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "period": { "type": "string", "enum": ["Manhã", "Tarde", "Noite"] },
+        "responsible": { "type": "string" },
+        "counts": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "period", "responsible", "counts"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and roles"
+    },
+    "/entries/{entryId}": {
+      "schema": "Entry",
+      "description": "Financial entries"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Attendance records"
+    }
+  }
+}

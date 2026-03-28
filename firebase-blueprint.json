@@ -38,6 +38,79 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["date", "period", "responsible", "counts"]
+    },
+    "Location": {
+      "title": "Location",
+      "description": "A physical location for services",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "is_default": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "Guardian": {
+      "title": "Guardian",
+      "description": "A guardian or teacher",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photo": { "type": "string" },
+        "isTeacher": { "type": "boolean" },
+        "assignedRoomIds": { "type": "array", "items": { "type": "string" } },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone"]
+    },
+    "Child": {
+      "title": "Child",
+      "description": "A child in the kids ministry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "birthDate": { "type": "string", "format": "date" },
+        "photo": { "type": "string" },
+        "guardianId": { "type": "string" },
+        "allergies": { "type": "string" },
+        "notes": { "type": "string" },
+        "kinship": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "birthDate", "guardianId"]
+    },
+    "KidsCheckIn": {
+      "title": "Kids Check-In",
+      "description": "A check-in record for a child",
+      "type": "object",
+      "properties": {
+        "childId": { "type": "string" },
+        "guardianId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "room": { "type": "string" },
+        "status": { "type": "string", "enum": ["checked-in", "checked-out"] },
+        "checkoutTime": { "type": "string" },
+        "checkedOutBy": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["childId", "guardianId", "date", "time", "room", "status"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A room in the kids ministry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "teacher": { "type": "string" },
+        "capacity": { "type": "number" },
+        "minAge": { "type": "number" },
+        "maxAge": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
     }
   },
   "firestore": {
@@ -52,6 +125,26 @@
     "/attendance/{attendanceId}": {
       "schema": "Attendance",
       "description": "Attendance records"
+    },
+    "/locations/{locationId}": {
+      "schema": "Location",
+      "description": "Service locations"
+    },
+    "/guardians/{guardianId}": {
+      "schema": "Guardian",
+      "description": "Guardians and teachers"
+    },
+    "/children/{childId}": {
+      "schema": "Child",
+      "description": "Children records"
+    },
+    "/kids_checkins/{checkinId}": {
+      "schema": "KidsCheckIn",
+      "description": "Kids check-in records"
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Kids ministry rooms"
     }
   }
 }

@@ -203,6 +203,16 @@ interface Room {
   created_at: string;
 }
 
+const SYSTEM_TABS = [
+  { id: 'dashboard', label: 'Início' },
+  { id: 'form', label: 'Registro' },
+  { id: 'history', label: 'Histórico' },
+  { id: 'attendance', label: 'Pessoas' },
+  { id: 'kids', label: 'Kids' },
+  { id: 'settings', label: 'Ajustes' },
+  { id: 'calculator', label: 'Calculadora' },
+];
+
 interface UserProfile {
   uid: string;
   email: string;
@@ -254,6 +264,8 @@ interface LoginScreenProps {
   setLoginEmail: (val: string) => void;
   loginPassword: string;
   setLoginPassword: (val: string) => void;
+  rememberMe: boolean;
+  setRememberMe: (val: boolean) => void;
   handleLogin: (e: React.FormEvent) => void;
   handleGoogleLogin: () => void;
   handleRegister: (e: React.FormEvent) => void;
@@ -273,6 +285,8 @@ const LoginScreen = ({
   setLoginEmail, 
   loginPassword, 
   setLoginPassword, 
+  rememberMe,
+  setRememberMe,
   handleLogin, 
   handleGoogleLogin,
   handleRegister,
@@ -359,8 +373,21 @@ const LoginScreen = ({
             </div>
           </div>
 
-          {!isRegistering && (
-            <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className="relative flex items-center">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <div className="w-4 h-4 border-2 border-slate-200 rounded-md peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all group-hover:border-indigo-300"></div>
+                <Check className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity left-0.5" />
+              </div>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-indigo-600 transition-colors">Lembrar-me</span>
+            </label>
+            {!isRegistering && (
               <button
                 type="button"
                 onClick={handleForgotPassword}
@@ -368,8 +395,8 @@ const LoginScreen = ({
               >
                 Esqueci minha senha
               </button>
-            </div>
-          )}
+            )}
+          </div>
 
           <button
             type="submit"
@@ -504,9 +531,6 @@ export default function App() {
   const APP_VERSION = "1.2.0-kids-ministry";
   const [activeTab, setActiveTab] = useState<"dashboard" | "calculator" | "form" | "history" | "settings" | "attendance" | "kids">("dashboard");
   const [userRole, setUserRole] = useState<"master" | "junior" | "user">(() => (localStorage.getItem("userRole") as any) || "user");
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState(false);
   const [showReversalModal, setShowReversalModal] = useState(false);
   const [reversalReason, setReversalReason] = useState("");
   const [entryToReverse, setEntryToReverse] = useState<string | number | null>(null);
@@ -546,6 +570,7 @@ export default function App() {
   const [showPermissionModal, setShowPermissionModal] = useState<{ show: boolean; tabId: string }>({ show: false, tabId: "" });
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isProcessingRegister, setIsProcessingRegister] = useState(false);
@@ -625,6 +650,18 @@ export default function App() {
       setIsPublicRegistration(true);
     } else if (mode === "room-leader" || hashPath === "#lider") {
       setIsRoomLeader(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const savedEmail = localStorage.getItem("rememberedEmail");
+    const savedPassword = localStorage.getItem("rememberedPassword");
+    const savedRememberMe = localStorage.getItem("rememberMe") === "true";
+
+    if (savedRememberMe && savedEmail && savedPassword) {
+      setLoginEmail(savedEmail);
+      setLoginPassword(savedPassword);
+      setRememberMe(true);
     }
   }, []);
 
@@ -710,9 +747,6 @@ export default function App() {
     if (!userProfile) return false;
     if (userProfile.role === "master") return true;
     
-    // History and Settings are master-only as per request
-    if (tabId === "history" || tabId === "settings") return false;
-    
     return userProfile.permissions?.includes(tabId) || false;
   };
 
@@ -739,25 +773,39 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Fallback for demo/dev - Always allow these credentials for quick testing
-    if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
-      const demoUser = { email: loginEmail, uid: "demo-user" } as any;
-      const demoProfile: UserProfile = {
-        uid: "demo-user",
-        email: loginEmail,
-        role: "master",
-        permissions: ["dashboard", "calculator", "form", "history", "settings", "attendance", "kids"]
-      };
-      setUser(demoUser);
-      setUserProfile(demoProfile);
-      setUserRole("master");
-      localStorage.setItem("userRole", "master");
-      addNotification("success", "Login de demonstração realizado.");
-      fetchEntries().catch(err => console.error("Error fetching entries after demo login:", err));
-      return;
-    }
-
     if (!isFirebaseEnabled || !auth) {
+      // Fallback for demo/dev - Only if Firebase is NOT enabled
+      if (loginEmail === "admin@modeloalpha.com.br" && loginPassword === "admin123") {
+        const demoUser = { email: loginEmail, uid: "demo-user" } as any;
+        const demoProfile: UserProfile = {
+          uid: "demo-user",
+          email: loginEmail,
+          role: "master",
+          permissions: ["dashboard", "calculator", "form", "history", "settings", "attendance", "kids"]
+        };
+        setUser(demoUser);
+        setUserProfile(demoProfile);
+        setUserRole("master");
+        localStorage.setItem("userRole", "master");
+
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", loginEmail);
+          localStorage.setItem("rememberedPassword", loginPassword);
+          localStorage.setItem("rememberMe", "true");
+        } else {
+          localStorage.removeItem("rememberedEmail");
+          localStorage.removeItem("rememberedPassword");
+          localStorage.setItem("rememberMe", "false");
+        }
+
+        addNotification("success", "Login de demonstração realizado (Dados não persistentes).");
+        if (!rememberMe) {
+          setLoginEmail("");
+          setLoginPassword("");
+        }
+        fetchEntries().catch(err => console.error("Error fetching entries after demo login:", err));
+        return;
+      }
       addNotification("error", "Firebase não configurado. Use admin@modeloalpha.com.br / admin123 para demonstração.");
       return;
     }
@@ -774,9 +822,22 @@ export default function App() {
 
       await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
       clearTimeout(timeout);
+      
+      if (rememberMe) {
+        localStorage.setItem("rememberedEmail", loginEmail);
+        localStorage.setItem("rememberedPassword", loginPassword);
+        localStorage.setItem("rememberMe", "true");
+      } else {
+        localStorage.removeItem("rememberedEmail");
+        localStorage.removeItem("rememberedPassword");
+        localStorage.setItem("rememberMe", "false");
+      }
+
       addNotification("success", "Login realizado com sucesso.");
-      setLoginEmail("");
-      setLoginPassword("");
+      if (!rememberMe) {
+        setLoginEmail("");
+        setLoginPassword("");
+      }
     } catch (error: any) {
       console.error("Login error:", error);
       let message = "Erro ao fazer login. Verifique suas credenciais.";
@@ -821,6 +882,8 @@ export default function App() {
         message = "Este domínio não está autorizado no Firebase Console.";
       } else if (error.code === "auth/popup-closed-by-user") {
         message = "O login foi cancelado.";
+      } else if (error.code === "auth/operation-not-allowed") {
+        message = "O provedor Google não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
       }
       addNotification("error", message, "Falha no Login");
     } finally {
@@ -1004,6 +1067,7 @@ export default function App() {
   const [editingLocation, setEditingLocation] = useState<{ id: string | number, name: string } | null>(null);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<"master" | "junior" | "user">("user");
+  const [newUserPermissions, setNewUserPermissions] = useState<string[]>(["dashboard"]);
   const [isAddingUser, setIsAddingUser] = useState(false);
 
   const calculatorTotal = useMemo(() => {
@@ -1155,8 +1219,8 @@ export default function App() {
     const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     return attendanceEntries.filter(entry => {
-      // Restrição para usuários não-master: apenas histórico do dia atual
-      if (userRole !== "master" && entry.date !== todayStr) {
+      // Restrição para usuários não-master/junior: apenas histórico do dia atual
+      if (userRole !== "master" && userRole !== "junior" && entry.date !== todayStr) {
         return false;
       }
 
@@ -1304,6 +1368,7 @@ export default function App() {
   };
 
   const handleFirestoreError = (error: any, operationType: OperationType, path: string | null) => {
+    setFirebaseStatus("error");
     const errInfo: FirestoreErrorInfo = {
       error: error instanceof Error ? error.message : String(error),
       authInfo: {
@@ -1328,11 +1393,11 @@ export default function App() {
     let userMessage = "Erro de permissão no banco de dados.";
     if (errInfo.error.includes("insufficient permissions") || errInfo.error.includes("Permissões ausentes")) {
       userMessage = "Você não tem permissão para acessar estes dados. Verifique seu nível de acesso.";
+    } else if (errInfo.error.includes("offline")) {
+      userMessage = "Você está offline. Os dados serão salvos localmente e sincronizados depois.";
     }
     
     addNotification("error", userMessage, "Erro no Banco de Dados");
-    // We don't necessarily want to crash the whole app for a fetch error, 
-    // but we log it for the AIS Agent to see.
   };
 
   const fetchEntries = async () => {
@@ -1400,7 +1465,8 @@ export default function App() {
 
           return { entriesData, attendanceData, locationsData: finalLocations };
         } catch (e: any) {
-          handleFirestoreError(e, OperationType.LIST, "entries/attendance/locations");
+          setFirebaseStatus("error");
+          handleFirestoreError(e, OperationType.LIST, "entries, attendance, locations");
           throw e;
         }
       };
@@ -1629,25 +1695,17 @@ export default function App() {
 
   const updateUserRole = async (uid: string, newRole: "master" | "junior" | "user") => {
     if (userRole !== "master") return;
-    if (newRole === "master") {
-      addNotification("error", "O cargo Master não pode ser atribuído manualmente.");
-      return;
-    }
     try {
       await updateDoc(doc(db, "users", uid), { role: newRole });
-      addNotification("success", "Permissão atualizada com sucesso!");
+      addNotification("success", "Cargo atualizado com sucesso!");
     } catch (error) {
       console.error("Error updating user role:", error);
-      addNotification("error", "Erro ao atualizar permissão.");
+      addNotification("error", "Erro ao atualizar cargo.");
     }
   };
 
   const inviteUser = async () => {
     if (!newUserEmail || userRole !== "master") return;
-    if (newUserRole === "master") {
-      addNotification("error", "O cargo Master não pode ser atribuído manualmente.");
-      return;
-    }
     try {
       setIsAddingUser(true);
       const q = query(collection(db, "users"), where("email", "==", newUserEmail.toLowerCase()));
@@ -1655,19 +1713,24 @@ export default function App() {
       
       if (!querySnapshot.empty) {
         const userDoc = querySnapshot.docs[0];
-        await updateDoc(doc(db, "users", userDoc.id), { role: newUserRole });
-        addNotification("success", `O usuário ${newUserEmail} já existia e teve seu poder atualizado para ${newUserRole}.`);
+        await updateDoc(doc(db, "users", userDoc.id), { 
+          role: newUserRole,
+          permissions: newUserPermissions
+        });
+        addNotification("success", `O usuário ${newUserEmail} já existia e teve seus poderes atualizados.`);
       } else {
         // Create a document with the email as the ID (sanitized)
         const sanitizedEmail = newUserEmail.toLowerCase().replace(/[^a-z0-9]/g, "_");
         await setDoc(doc(db, "users", sanitizedEmail), {
           email: newUserEmail.toLowerCase(),
           role: newUserRole,
+          permissions: newUserPermissions,
           is_pending: true
         });
-        addNotification("success", `Usuário ${newUserEmail} pré-cadastrado como ${newUserRole}. Peça para ele se cadastrar com este e-mail.`);
+        addNotification("success", `Usuário ${newUserEmail} pré-cadastrado. Peça para ele se cadastrar com este e-mail.`);
       }
       setNewUserEmail("");
+      setNewUserPermissions(["dashboard"]);
     } catch (error) {
       console.error("Error inviting user:", error);
       addNotification("error", "Erro ao cadastrar usuário.");
@@ -2583,43 +2646,14 @@ export default function App() {
     localStorage.setItem("churchName", name);
   };
 
-  const handlePinInput = (val: string) => {
-    const newPin = pinInput + val;
-    if (newPin.length <= 4) {
-      setPinInput(newPin);
-      if (newPin.length === 4) {
-        if (newPin === "1234") {
-          // Master PIN removed as per request
-          setPinError(true);
-          addNotification("error", "O PIN de Master foi desativado. Use o login oficial.");
-        } else if (newPin === "4321") {
-          setUserRole("junior");
-          localStorage.setItem("userRole", "junior");
-          setShowPinModal(false);
-          setPinInput("");
-          setPinError(false);
-        } else {
-          setPinError(true);
-          addNotification("error", "O PIN informado está incorreto. Tente novamente.", "Acesso Negado");
-          setTimeout(() => {
-            setPinInput("");
-            setPinError(false);
-          }, 1000);
-        }
-      }
-    }
-  };
+  // Removed handlePinInput
 
   const formatCurrency = (value: number) => {
     if (!showValues) return "R$ ••••";
     return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
   };
 
-  const handleLogoutMaster = () => {
-    setUserRole("user");
-    localStorage.setItem("userRole", "user");
-    setActiveTab("dashboard");
-  };
+  // Removed handleLogoutMaster
 
   if (isRoomLeader) {
     if (!user) {
@@ -2631,6 +2665,8 @@ export default function App() {
           setLoginEmail={setLoginEmail}
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
+          rememberMe={rememberMe}
+          setRememberMe={setRememberMe}
           handleLogin={handleLogin}
           handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
@@ -3394,6 +3430,8 @@ export default function App() {
           setLoginEmail={setLoginEmail}
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
+          rememberMe={rememberMe}
+          setRememberMe={setRememberMe}
           handleLogin={handleLogin}
           handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
@@ -3607,6 +3645,8 @@ export default function App() {
           setLoginEmail={setLoginEmail}
           loginPassword={loginPassword}
           setLoginPassword={setLoginPassword}
+          rememberMe={rememberMe}
+          setRememberMe={setRememberMe}
           handleLogin={handleLogin}
           handleGoogleLogin={handleGoogleLogin}
           handleRegister={handleRegister}
@@ -3935,6 +3975,21 @@ export default function App() {
                           className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                         />
                       </div>
+                    </div>
+                    <div className="flex items-center justify-between px-2">
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <div className="relative flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="peer sr-only"
+                          />
+                          <div className="w-4 h-4 border-2 border-slate-200 rounded-md peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all group-hover:border-indigo-300"></div>
+                          <Check className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity left-0.5" />
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-indigo-600 transition-colors">Salvar usuário e senha</span>
+                      </label>
                     </div>
                     <button 
                       type="submit" 
@@ -4559,6 +4614,8 @@ export default function App() {
         setLoginEmail={setLoginEmail}
         loginPassword={loginPassword}
         setLoginPassword={setLoginPassword}
+        rememberMe={rememberMe}
+        setRememberMe={setRememberMe}
         handleLogin={handleLogin}
         handleGoogleLogin={handleGoogleLogin}
         handleRegister={handleRegister}
@@ -7375,85 +7432,136 @@ export default function App() {
                         <Users className="w-4 h-4 text-slate-400" />
                       </div>
                       
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cadastrar Novo Usuário</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <input
-                            type="email"
-                            placeholder="E-mail da pessoa"
-                            className="px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                            value={newUserEmail}
-                            onChange={(e) => setNewUserEmail(e.target.value)}
-                          />
-                          <div className="flex gap-2">
-                            <select
-                              className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                              value={newUserRole}
-                              onChange={(e) => setNewUserRole(e.target.value as any)}
-                            >
-                              <option value="user">Usuário (Básico)</option>
-                              <option value="junior">Junior (Visualizador)</option>
-                            </select>
-                            <button
-                              onClick={inviteUser}
-                              disabled={isAddingUser || !newUserEmail}
-                              className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50"
-                            >
-                              {isAddingUser ? "..." : "Adicionar"}
-                            </button>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cadastrar Novo Usuário</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <input
+                              type="email"
+                              placeholder="E-mail da pessoa"
+                              className="px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                              value={newUserEmail}
+                              onChange={(e) => setNewUserEmail(e.target.value)}
+                            />
+                            <div className="flex gap-2">
+                              <select
+                                className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                                value={newUserRole}
+                                onChange={(e) => setNewUserRole(e.target.value as any)}
+                              >
+                                <option value="user">Usuário (Básico)</option>
+                                <option value="junior">Junior (Visualizador)</option>
+                                <option value="master">Master (Total)</option>
+                              </select>
+                              <button
+                                onClick={inviteUser}
+                                disabled={isAddingUser || !newUserEmail}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50"
+                              >
+                                {isAddingUser ? "..." : "Adicionar"}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                        <p className="text-[9px] text-slate-400 leading-tight">
-                          * Se a pessoa já tiver conta, o poder será atualizado. Se não tiver, ela deve se cadastrar com este e-mail para receber o acesso.
-                        </p>
-                      </div>
 
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Usuários Ativos</p>
-                        {allUsers.map(u => (
-                          <div key={u.uid || u.email} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                u.role === "master" ? "bg-emerald-100 text-emerald-600" : 
-                                u.role === "junior" ? "bg-indigo-100 text-indigo-600" : 
-                                "bg-slate-100 text-slate-600"
-                              }`}>
-                                <User className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-slate-800">{u.name || "Usuário sem nome"}</p>
-                                <p className="text-[10px] text-slate-400 font-medium">{u.email}</p>
+                          {newUserRole !== "master" && (
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Permissões Iniciais</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {SYSTEM_TABS.map(tab => (
+                                  <label key={tab.id} className="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                                    <input
+                                      type="checkbox"
+                                      checked={newUserPermissions.includes(tab.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setNewUserPermissions([...newUserPermissions, tab.id]);
+                                        } else {
+                                          setNewUserPermissions(newUserPermissions.filter(p => p !== tab.id));
+                                        }
+                                      }}
+                                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                                    />
+                                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tighter">{tab.label}</span>
+                                  </label>
+                                ))}
                               </div>
                             </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <select
-                                className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border outline-none transition-all ${
-                                  u.role === "master" ? "bg-emerald-50 border-emerald-100 text-emerald-600" : 
-                                  u.role === "junior" ? "bg-indigo-50 border-indigo-100 text-indigo-600" : 
-                                  "bg-slate-50 border-slate-200 text-slate-600"
-                                }`}
-                                value={u.role}
-                                onChange={(e) => updateUserRole(u.uid, e.target.value as any)}
-                                disabled={u.uid === user?.uid}
-                              >
-                                <option value="user">User</option>
-                                <option value="junior">Junior</option>
-                              </select>
-                              
-                              {u.uid !== user?.uid && (
-                                <button
-                                  onClick={() => deleteUser(u.uid)}
-                                  className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
-                                  title="Remover Acesso"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                          )}
+                          
+                          <p className="text-[9px] text-slate-400 leading-tight">
+                            * Se a pessoa já tiver conta, o poder será atualizado. Se não tiver, ela deve se cadastrar com este e-mail para receber o acesso.
+                          </p>
+                        </div>
+
+                        <div className="space-y-4">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Usuários Ativos</p>
+                          {allUsers.map(u => (
+                            <div key={u.uid || u.email} className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                    u.role === "master" ? "bg-emerald-100 text-emerald-600" : 
+                                    u.role === "junior" ? "bg-indigo-100 text-indigo-600" : 
+                                    "bg-slate-100 text-slate-600"
+                                  }`}>
+                                    <User className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-800">{u.name || "Usuário sem nome"}</p>
+                                    <p className="text-[10px] text-slate-400 font-medium">{u.email}</p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border outline-none transition-all ${
+                                      u.role === "master" ? "bg-emerald-50 border-emerald-100 text-emerald-600" : 
+                                      u.role === "junior" ? "bg-indigo-50 border-indigo-100 text-indigo-600" : 
+                                      "bg-slate-50 border-slate-200 text-slate-600"
+                                    }`}
+                                    value={u.role}
+                                    onChange={(e) => updateUserRole(u.uid, e.target.value as any)}
+                                    disabled={u.uid === user?.uid || u.email === "admin@modeloalpha.com.br"}
+                                  >
+                                    <option value="user">User</option>
+                                    <option value="junior">Junior</option>
+                                    <option value="master">Master</option>
+                                  </select>
+                                  
+                                  {u.uid !== user?.uid && u.email !== "admin@modeloalpha.com.br" && (
+                                    <button
+                                      onClick={() => deleteUser(u.uid)}
+                                      className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
+                                      title="Remover Acesso"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {u.role !== "master" && (
+                                <div className="pt-4 border-t border-slate-50">
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Permissões de Acesso</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {SYSTEM_TABS.map(tab => (
+                                      <button
+                                        key={tab.id}
+                                        onClick={() => toggleUserPermission(u.uid, tab.id)}
+                                        className={`px-3 py-1.5 rounded-xl text-[9px] font-bold uppercase tracking-widest transition-all border ${
+                                          u.permissions?.includes(tab.id)
+                                            ? "bg-indigo-600 border-indigo-600 text-white shadow-sm shadow-indigo-100"
+                                            : "bg-white border-slate-200 text-slate-400 hover:border-indigo-200"
+                                        }`}
+                                      >
+                                        {tab.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
                     </div>
                   )}
 
@@ -7586,44 +7694,6 @@ export default function App() {
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1" />
                       </button>
-
-                      {userRole === "master" || userRole === "junior" ? (
-                        <div className={`p-4 rounded-2xl border flex items-center justify-between ${userRole === "master" ? "bg-emerald-50 border-emerald-100" : "bg-indigo-50 border-indigo-100"}`}>
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${userRole === "master" ? "bg-emerald-100" : "bg-indigo-100"}`}>
-                              {userRole === "master" ? <Unlock className="w-5 h-5 text-emerald-600" /> : <Shield className="w-5 h-5 text-indigo-600" />}
-                            </div>
-                            <div>
-                              <p className={`text-sm font-bold ${userRole === "master" ? "text-emerald-900" : "text-indigo-900"}`}>Modo {userRole === "master" ? "Master" : "Junior"} Ativo</p>
-                              <p className={`text-[10px] font-medium ${userRole === "master" ? "text-emerald-600" : "text-indigo-600"}`}>
-                                {userRole === "master" ? "Você tem acesso total ao sistema." : "Você pode visualizar saldos e histórico."}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={handleLogoutMaster}
-                            className={`px-4 py-2 bg-white border rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${userRole === "master" ? "text-emerald-600 border-emerald-200 hover:bg-emerald-100" : "text-indigo-600 border-indigo-200 hover:bg-indigo-100"}`}
-                          >
-                            Sair
-                          </button>
-                        </div>
-                      ) : (
-                        <button 
-                          onClick={() => setShowPinModal(true)}
-                          className="w-full bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-all"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-                              <Lock className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" />
-                            </div>
-                            <div className="text-left">
-                              <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-900">Ativar Modo Master</p>
-                              <p className="text-[10px] text-slate-400 font-medium">Libera saldos, gráficos e histórico.</p>
-                            </div>
-                          </div>
-                          <ArrowUpRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1" />
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -8243,87 +8313,7 @@ export default function App() {
           </div>
         )}
 
-      {/* PIN Modal with Visual Keypad */}
-      <AnimatePresence>
-        {showPinModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowPinModal(false)}
-              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-xs bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
-            >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Lock className="w-8 h-8 text-indigo-600" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900">Acesso Restrito</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Insira seu PIN</p>
-              </div>
-
-              <div className="flex justify-center gap-3 mb-8">
-                {[0, 1, 2, 3].map((i) => (
-                  <div 
-                    key={i} 
-                    className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
-                      pinInput.length > i 
-                        ? "bg-indigo-600 border-indigo-600 scale-110" 
-                        : "border-slate-200"
-                    }`} 
-                  />
-                ))}
-              </div>
-
-              {pinError && (
-                <motion.p 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center text-rose-500 text-[10px] font-bold uppercase tracking-widest mb-4"
-                >
-                  PIN Incorreto
-                </motion.p>
-              )}
-
-              <div className="grid grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => handlePinInput(num.toString())}
-                    className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-600 font-bold text-xl hover:bg-indigo-50 hover:text-indigo-600 active:scale-90 transition-all flex items-center justify-center"
-                  >
-                    {num}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPinInput("")}
-                  className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-400 font-bold text-xs flex items-center justify-center hover:bg-rose-50 hover:text-rose-500 transition-all"
-                >
-                  Limpar
-                </button>
-                <button
-                  onClick={() => handlePinInput("0")}
-                  className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-600 font-bold text-xl hover:bg-indigo-50 hover:text-indigo-600 active:scale-90 transition-all flex items-center justify-center"
-                >
-                  0
-                </button>
-                <button
-                  onClick={() => setShowPinModal(false)}
-                  className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-slate-100 transition-all"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Removed PIN Modal */}
 
       {/* Bottom Navigation Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-200/60 z-50 print:hidden">

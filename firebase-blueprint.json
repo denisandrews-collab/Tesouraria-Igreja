@@ -61,6 +61,9 @@
         "photo": { "type": "string" },
         "isTeacher": { "type": "boolean" },
         "assignedRoomIds": { "type": "array", "items": { "type": "string" } },
+        "invitedBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active"] },
+        "acceptedAt": { "type": "string", "format": "date-time" },
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "phone"]
@@ -74,12 +77,13 @@
         "birthDate": { "type": "string", "format": "date" },
         "photo": { "type": "string" },
         "guardianId": { "type": "string" },
+        "guardianIds": { "type": "array", "items": { "type": "string" } },
         "allergies": { "type": "string" },
         "notes": { "type": "string" },
         "kinship": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "birthDate", "guardianId"]
+      "required": ["name", "birthDate", "guardianIds"]
     },
     "KidsCheckIn": {
       "title": "Kids Check-In",

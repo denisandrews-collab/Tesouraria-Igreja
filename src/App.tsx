@@ -165,6 +165,9 @@ interface Guardian {
   photo?: string;
   isTeacher?: boolean;
   assignedRoomIds?: string[];
+  invitedBy?: string;
+  status?: 'pending' | 'active';
+  acceptedAt?: string;
   created_at: string;
 }
 
@@ -174,6 +177,7 @@ interface Child {
   birthDate: string;
   photo?: string;
   guardianId: string;
+  guardianIds?: string[];
   allergies?: string;
   notes?: string;
   kinship?: string;
@@ -555,6 +559,11 @@ export default function App() {
   const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
   const [showAddGuardianModal, setShowAddGuardianModal] = useState(false);
+  const [showInviteGuardianModal, setShowInviteGuardianModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
+  const [invitationData, setInvitationData] = useState<{ id: string; name: string; email: string } | null>(null);
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
   const [showEditGuardianModal, setShowEditGuardianModal] = useState(false);
@@ -650,6 +659,14 @@ export default function App() {
       setIsPublicRegistration(true);
     } else if (mode === "room-leader" || hashPath === "#lider") {
       setIsRoomLeader(true);
+    } else if (hashPath === "#aceitar-convite") {
+      const inviteId = hashParams.get("id");
+      const inviteName = hashParams.get("nome");
+      const inviteEmail = hashParams.get("email");
+      if (inviteId && inviteName && inviteEmail) {
+        setInvitationData({ id: inviteId, name: inviteName, email: inviteEmail });
+        setIsAcceptingInvitation(true);
+      }
     }
   }, []);
 
@@ -846,8 +863,9 @@ export default function App() {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
       } else if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
         message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, use o Login com Google ou peça ao administrador para ativar o provedor de E-mail/Senha.";
-      } else if (error.code === "auth/user-not-found") {
-        message = "Usuário não encontrado. Se você ainda não tem uma conta, use a opção 'Cadastre-se agora' abaixo.";
+      } else if (error.code === "auth/user-not-found" || error.code === "auth/invalid-credential") {
+        message = "E-mail não encontrado. Redirecionando para o cadastro...";
+        setIsRegistering(true);
       } else if (error.code === "auth/wrong-password") {
         message = "Senha incorreta. Verifique se digitou corretamente.";
       } else if (error.code === "auth/invalid-credential") {
@@ -917,7 +935,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Registration error:", error);
       let message = "Erro ao criar conta.";
-      if (error.code === "auth/email-already-in-use") message = "Este e-mail já está em uso.";
+      if (error.code === "auth/email-already-in-use") {
+        message = "Usuário já cadastrado. Você pode fazer login ou trocar a senha.";
+        setIsRegistering(false);
+      }
       if (error.code === "auth/weak-password") message = "A senha é muito fraca (mínimo 6 caracteres).";
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
@@ -1796,6 +1817,88 @@ export default function App() {
   };
 
   // Kids Ministry Logic
+  const handleInviteGuardian = async () => {
+    if (!inviteEmail || !inviteName) {
+      addNotification("warning", "Por favor, preencha o nome e e-mail.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const newGuardian: Partial<Guardian> = {
+        name: inviteName,
+        email: inviteEmail,
+        phone: "", // To be filled by the invited person
+        status: 'pending',
+        invitedBy: user?.email || "admin",
+        created_at: new Date().toISOString()
+      };
+
+      if (isFirebaseEnabled && db) {
+        const docRef = await addDoc(collection(db, "guardians"), newGuardian);
+        const inviteLink = `${window.location.origin}/#aceitar-convite?id=${docRef.id}&nome=${encodeURIComponent(inviteName)}&email=${encodeURIComponent(inviteEmail)}`;
+        
+        // Mock email sending
+        console.log("Convite enviado para:", inviteEmail, "Link:", inviteLink);
+        
+        // In a real app, we'd send an email here. For now, we'll provide a way to copy the link.
+        addNotification("success", "Convite criado com sucesso! Copie o link para enviar.");
+        
+        // Copy to clipboard automatically if possible
+        try {
+          await navigator.clipboard.writeText(inviteLink);
+          addNotification("info", "Link de convite copiado para a área de transferência.");
+        } catch (err) {
+          console.error("Failed to copy link:", err);
+        }
+      } else {
+        // Local fallback
+        const id = Date.now().toString();
+        const guardianWithId = { ...newGuardian, id } as Guardian;
+        setGuardians(prev => [...prev, guardianWithId]);
+        const inviteLink = `${window.location.origin}/#aceitar-convite?id=${id}&nome=${encodeURIComponent(inviteName)}&email=${encodeURIComponent(inviteEmail)}`;
+        await navigator.clipboard.writeText(inviteLink);
+        addNotification("success", "Convite criado (Modo Local) e link copiado.");
+      }
+
+      setShowInviteGuardianModal(false);
+      setInviteEmail("");
+      setInviteName("");
+    } catch (error) {
+      console.error("Error inviting guardian:", error);
+      addNotification("error", "Erro ao enviar convite.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAcceptInvitation = async (guardianId: string, details: { phone: string; password?: string }) => {
+    try {
+      setSubmitting(true);
+      const updatedData = {
+        phone: details.phone,
+        status: 'active' as const,
+        acceptedAt: new Date().toISOString()
+      };
+
+      if (isFirebaseEnabled && db) {
+        await updateDoc(doc(db, "guardians", guardianId), updatedData);
+      } else {
+        setGuardians(prev => prev.map(g => g.id === guardianId ? { ...g, ...updatedData } as Guardian : g));
+      }
+
+      addNotification("success", "Cadastro finalizado com sucesso! Agora você pode acessar o sistema.");
+      setIsAcceptingInvitation(false);
+      setInvitationData(null);
+      window.location.hash = ""; // Clear hash
+    } catch (error) {
+      console.error("Error accepting invitation:", error);
+      addNotification("error", "Erro ao finalizar cadastro.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleAddGuardian = async (guardianData: Omit<Guardian, "id" | "created_at"> & { password?: string }) => {
     try {
       setSubmitting(true);
@@ -1867,7 +1970,7 @@ export default function App() {
     return null;
   };
 
-  const handleAddChild = async (childData: Omit<Child, "id" | "created_at">) => {
+  const handleAddChild = async (childData: Omit<Child, "id" | "created_at"> & { guardianIds?: string[] }) => {
     try {
       setSubmitting(true);
       
@@ -1888,6 +1991,7 @@ export default function App() {
       const newChild = {
         ...childData,
         id,
+        guardianIds: childData.guardianIds || [childData.guardianId],
         created_at: existingChild ? existingChild.created_at : new Date().toISOString()
       };
 
@@ -1915,8 +2019,9 @@ export default function App() {
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newChild)
+        body: JSON.stringify(newChild),
       });
+
       if (response.ok) {
         fetchEntries();
         setShowAddChildModal(false);
@@ -2051,9 +2156,14 @@ export default function App() {
   const handleUpdateChild = async (id: string, childData: Partial<Child>) => {
     try {
       setSubmitting(true);
+      const updatedChild = {
+        ...childData,
+        guardianIds: childData.guardianIds || (childData.guardianId ? [childData.guardianId] : undefined)
+      };
+
       if (db && isFirebaseEnabled) {
         try {
-          await updateDoc(doc(db, "children", id), childData);
+          await updateDoc(doc(db, "children", id), updatedChild);
           await fetchEntries();
           setShowEditChildModal(false);
           setEditingChild(null);
@@ -2067,7 +2177,7 @@ export default function App() {
       const response = await fetch(`/api/children/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(childData)
+        body: JSON.stringify(updatedChild)
       });
       if (response.ok) {
         await fetchEntries();
@@ -2655,29 +2765,153 @@ export default function App() {
 
   // Removed handleLogoutMaster
 
+  const Layout = ({ children }: { children: React.ReactNode }) => (
+    <div className="min-h-screen font-sans bg-slate-50">
+      {/* Notifications */}
+      <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.95 }}
+              className="pointer-events-auto bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex gap-4 items-start group relative overflow-hidden"
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${
+                n.type === "success" ? "bg-emerald-50 text-emerald-600" :
+                n.type === "error" ? "bg-rose-50 text-rose-600" :
+                n.type === "warning" ? "bg-amber-50 text-amber-600" :
+                "bg-indigo-50 text-indigo-600"
+              }`}>
+                {n.type === "success" ? <CheckCircle2 className="w-5 h-5" /> :
+                 n.type === "error" ? <XCircle className="w-5 h-5" /> :
+                 n.type === "warning" ? <AlertTriangle className="w-5 h-5" /> :
+                 <Info className="w-5 h-5" />}
+              </div>
+              <div className="flex-1 min-w-0 pr-6">
+                {n.title && <h4 className="text-sm font-bold text-slate-900 mb-0.5">{n.title}</h4>}
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">{n.message}</p>
+              </div>
+              <button 
+                onClick={() => removeNotification(n.id)}
+                className="absolute top-2 right-2 p-1 text-slate-300 hover:text-slate-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <motion.div 
+                initial={{ width: "100%" }}
+                animate={{ width: "0%" }}
+                transition={{ duration: 5, ease: "linear" }}
+                className={`absolute bottom-0 left-0 h-1 ${
+                  n.type === "success" ? "bg-emerald-500" :
+                  n.type === "error" ? "bg-rose-500" :
+                  n.type === "warning" ? "bg-amber-500" :
+                  "bg-indigo-500"
+                }`}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+      {children}
+    </div>
+  );
+
+  if (isAcceptingInvitation && invitationData) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+          >
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-600 mx-auto mb-4">
+                <UserPlus className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Finalizar Cadastro</h2>
+              <p className="text-slate-500 mt-2">Olá, {invitationData.name}! Complete seus dados para acessar o sistema.</p>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleAcceptInvitation(invitationData.id, {
+                phone: formData.get('phone') as string,
+                password: formData.get('password') as string,
+              });
+            }} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                <input
+                  type="email"
+                  disabled
+                  value={invitationData.email}
+                  className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 text-sm font-medium cursor-not-allowed"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone / WhatsApp</label>
+                <input
+                  name="phone"
+                  required
+                  type="tel"
+                  placeholder="(00) 00000-0000"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Criar Senha</label>
+                <input
+                  name="password"
+                  required
+                  type="password"
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                />
+              </div>
+              <button
+                disabled={submitting}
+                type="submit"
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+              >
+                {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Finalizar e Entrar"}
+              </button>
+            </form>
+          </motion.div>
+        </div>
+      </Layout>
+    );
+  }
+
   if (isRoomLeader) {
     if (!user) {
       return (
-        <LoginScreen 
-          title="App do Líder" 
-          isFirebaseEnabled={isFirebaseEnabled}
-          loginEmail={loginEmail}
-          setLoginEmail={setLoginEmail}
-          loginPassword={loginPassword}
-          setLoginPassword={setLoginPassword}
-          rememberMe={rememberMe}
-          setRememberMe={setRememberMe}
-          handleLogin={handleLogin}
-          handleGoogleLogin={handleGoogleLogin}
-          handleRegister={handleRegister}
-          handleForgotPassword={handleForgotPassword}
-          isLoggingIn={isLoggingIn}
-          isProcessingRegister={isProcessingRegister}
-          isRegistering={isRegistering}
-          setIsRegistering={setIsRegistering}
-          setUser={setUser}
-          addNotification={addNotification}
-        />
+        <Layout>
+          <LoginScreen 
+            title="App do Líder" 
+            isFirebaseEnabled={isFirebaseEnabled}
+            loginEmail={loginEmail}
+            setLoginEmail={setLoginEmail}
+            loginPassword={loginPassword}
+            setLoginPassword={setLoginPassword}
+            rememberMe={rememberMe}
+            setRememberMe={setRememberMe}
+            handleLogin={handleLogin}
+            handleGoogleLogin={handleGoogleLogin}
+            handleRegister={handleRegister}
+            handleForgotPassword={handleForgotPassword}
+            isLoggingIn={isLoggingIn}
+            isProcessingRegister={isProcessingRegister}
+            isRegistering={isRegistering}
+            setIsRegistering={setIsRegistering}
+            setUser={setUser}
+            addNotification={addNotification}
+          />
+        </Layout>
       );
     }
 
@@ -2693,9 +2927,10 @@ export default function App() {
     }).length;
     
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center font-sans">
-        {/* Header */}
-        <div className="w-full max-w-2xl bg-white/90 backdrop-blur-xl border-b border-slate-200/60 px-6 py-5 flex items-center justify-between sticky top-0 z-[60] shadow-sm">
+      <Layout>
+        <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center font-sans">
+          {/* Header */}
+          <div className="w-full max-w-2xl bg-white/90 backdrop-blur-xl border-b border-slate-200/60 px-6 py-5 flex items-center justify-between sticky top-0 z-[60] shadow-sm">
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 ring-4 ring-indigo-50">
               <Shield className="w-6 h-6" />
@@ -3414,40 +3649,45 @@ export default function App() {
           )}
         </AnimatePresence>
       </div>
-    );
-  }
+    </div>
+  </Layout>
+);
+}
 
-  if (isPublicRegistration) {
+if (isPublicRegistration) {
     // Se não estiver logado e não estiver no passo de registro, mostra login
     if (!user && registrationStep === "guardian") {
       // Permitimos continuar para o formulário de registro mesmo sem estar logado
     } else if (!user) {
       return (
-        <LoginScreen 
-          title="Cadastro Kids" 
-          isFirebaseEnabled={isFirebaseEnabled}
-          loginEmail={loginEmail}
-          setLoginEmail={setLoginEmail}
-          loginPassword={loginPassword}
-          setLoginPassword={setLoginPassword}
-          rememberMe={rememberMe}
-          setRememberMe={setRememberMe}
-          handleLogin={handleLogin}
-          handleGoogleLogin={handleGoogleLogin}
-          handleRegister={handleRegister}
-          handleForgotPassword={handleForgotPassword}
-          isLoggingIn={isLoggingIn}
-          isProcessingRegister={isProcessingRegister}
-          isRegistering={isRegistering}
-          setIsRegistering={setIsRegistering}
-          setUser={setUser}
-          addNotification={addNotification}
-        />
+        <Layout>
+          <LoginScreen 
+            title="Cadastro Kids" 
+            isFirebaseEnabled={isFirebaseEnabled}
+            loginEmail={loginEmail}
+            setLoginEmail={setLoginEmail}
+            loginPassword={loginPassword}
+            setLoginPassword={setLoginPassword}
+            rememberMe={rememberMe}
+            setRememberMe={setRememberMe}
+            handleLogin={handleLogin}
+            handleGoogleLogin={handleGoogleLogin}
+            handleRegister={handleRegister}
+            handleForgotPassword={handleForgotPassword}
+            isLoggingIn={isLoggingIn}
+            isProcessingRegister={isProcessingRegister}
+            isRegistering={isRegistering}
+            setIsRegistering={setIsRegistering}
+            setUser={setUser}
+            addNotification={addNotification}
+          />
+        </Layout>
       );
     }
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
+      <Layout>
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
         <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-xl overflow-hidden mt-8">
           <div className="bg-indigo-600 p-8 text-white text-center relative">
             {user && (
@@ -3631,33 +3871,36 @@ export default function App() {
           </div>
         </div>
       </div>
-    );
-  }
+    </Layout>
+  );
+}
 
-  if (isMobileCheckin) {
+if (isMobileCheckin) {
     // If not logged in and not in registration, show login
     if (!user && mobileStep !== "registration-guardian") {
       return (
-        <LoginScreen 
-          title="Check-in Mobile" 
-          isFirebaseEnabled={isFirebaseEnabled}
-          loginEmail={loginEmail}
-          setLoginEmail={setLoginEmail}
-          loginPassword={loginPassword}
-          setLoginPassword={setLoginPassword}
-          rememberMe={rememberMe}
-          setRememberMe={setRememberMe}
-          handleLogin={handleLogin}
-          handleGoogleLogin={handleGoogleLogin}
-          handleRegister={handleRegister}
-          handleForgotPassword={handleForgotPassword}
-          isLoggingIn={isLoggingIn}
-          isProcessingRegister={isProcessingRegister}
-          isRegistering={isRegistering}
-          setIsRegistering={setIsRegistering}
-          setUser={setUser}
-          addNotification={addNotification}
-        />
+        <Layout>
+          <LoginScreen 
+            title="Check-in Mobile" 
+            isFirebaseEnabled={isFirebaseEnabled}
+            loginEmail={loginEmail}
+            setLoginEmail={setLoginEmail}
+            loginPassword={loginPassword}
+            setLoginPassword={setLoginPassword}
+            rememberMe={rememberMe}
+            setRememberMe={setRememberMe}
+            handleLogin={handleLogin}
+            handleGoogleLogin={handleGoogleLogin}
+            handleRegister={handleRegister}
+            handleForgotPassword={handleForgotPassword}
+            isLoggingIn={isLoggingIn}
+            isProcessingRegister={isProcessingRegister}
+            isRegistering={isRegistering}
+            setIsRegistering={setIsRegistering}
+            setUser={setUser}
+            addNotification={addNotification}
+          />
+        </Layout>
       );
     }
 
@@ -3675,7 +3918,8 @@ export default function App() {
     }
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-24">
+      <Layout>
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-24">
         {/* Header */}
         <div className="w-full max-w-md bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
           <div className="flex items-center gap-3">
@@ -4602,46 +4846,52 @@ export default function App() {
           </motion.div>
         </div>
       </div>
-    );
-  }
+    </Layout>
+  );
+}
 
-  if (!user) {
+if (!user) {
     return (
-      <LoginScreen 
-        title={churchName} 
-        isFirebaseEnabled={isFirebaseEnabled}
-        loginEmail={loginEmail}
-        setLoginEmail={setLoginEmail}
-        loginPassword={loginPassword}
-        setLoginPassword={setLoginPassword}
-        rememberMe={rememberMe}
-        setRememberMe={setRememberMe}
-        handleLogin={handleLogin}
-        handleGoogleLogin={handleGoogleLogin}
-        handleRegister={handleRegister}
-        handleForgotPassword={handleForgotPassword}
-        isLoggingIn={isLoggingIn}
-        isProcessingRegister={isProcessingRegister}
-        isRegistering={isRegistering}
-        setIsRegistering={setIsRegistering}
-        setUser={setUser}
-        addNotification={addNotification}
-      />
+      <Layout>
+        <LoginScreen 
+          title={churchName} 
+          isFirebaseEnabled={isFirebaseEnabled}
+          loginEmail={loginEmail}
+          setLoginEmail={setLoginEmail}
+          loginPassword={loginPassword}
+          setLoginPassword={setLoginPassword}
+          rememberMe={rememberMe}
+          setRememberMe={setRememberMe}
+          handleLogin={handleLogin}
+          handleGoogleLogin={handleGoogleLogin}
+          handleRegister={handleRegister}
+          handleForgotPassword={handleForgotPassword}
+          isLoggingIn={isLoggingIn}
+          isProcessingRegister={isProcessingRegister}
+          isRegistering={isRegistering}
+          setIsRegistering={setIsRegistering}
+          setUser={setUser}
+          addNotification={addNotification}
+        />
+      </Layout>
     );
   }
 
   if (!userProfile) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-        <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-6" />
-        <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Carregando Perfil...</h2>
-        <p className="text-slate-500 text-sm mt-2 font-bold uppercase tracking-widest opacity-50">Sincronizando permissões</p>
-      </div>
+      <Layout>
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+          <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-6" />
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Carregando Perfil...</h2>
+          <p className="text-slate-500 text-sm mt-2 font-bold uppercase tracking-widest opacity-50">Sincronizando permissões</p>
+        </div>
+      </Layout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <Layout>
+      <div className="min-h-screen bg-[#f1f5f9] text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900">
       {/* Sidebar / Navigation Rail */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6 md:space-y-8 print:p-0 print:m-0 print:max-w-none">
         {/* Print Header */}
@@ -6999,13 +7249,22 @@ export default function App() {
                 <section className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-slate-900">Gerenciar Responsáveis</h3>
-                    <button
-                      onClick={() => setShowAddGuardianModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Novo Responsável
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowInviteGuardianModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all"
+                      >
+                        <Mail className="w-4 h-4" />
+                        Convidar
+                      </button>
+                      <button
+                        onClick={() => setShowAddGuardianModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Novo Responsável
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {guardians.map(guardian => (
@@ -7027,12 +7286,17 @@ export default function App() {
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900">{guardian.name}</h4>
-                            <p className="text-xs text-slate-500">{guardian.phone}</p>
-                            {guardian.isTeacher && (
-                              <div className="mt-1 flex items-center gap-1">
+                            <p className="text-xs text-slate-500">{guardian.phone || guardian.email}</p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {guardian.isTeacher && (
                                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-full uppercase tracking-widest">Professor(a)</span>
-                              </div>
-                            )}
+                              )}
+                              {guardian.status && guardian.status !== 'active' && (
+                                <span className={`px-2 py-0.5 ${guardian.status === 'pending' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'} text-[10px] font-bold rounded-full uppercase tracking-widest`}>
+                                  {guardian.status === 'pending' ? 'Pendente' : guardian.status}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
@@ -7975,17 +8239,20 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsável</label>
-                    <select
-                      name="guardianId"
-                      required
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    >
-                      <option value="">Selecione...</option>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
+                    <div className="max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                       {guardians.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
+                        <label key={g.id} className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="guardianIds"
+                            value={g.id}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs font-medium text-slate-700">{g.name}</span>
+                        </label>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -8154,10 +8421,11 @@ export default function App() {
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
+                const guardianIds = Array.from(formData.getAll('guardianIds')) as string[];
                 handleUpdateChild(editingChild.id, {
                   name: formData.get('name') as string,
                   birthDate: formData.get('birthDate') as string,
-                  guardianId: formData.get('guardianId') as string,
+                  guardianIds: guardianIds,
                   allergies: formData.get('allergies') as string,
                   notes: formData.get('notes') as string,
                 });
@@ -8184,17 +8452,21 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsável</label>
-                    <select
-                      name="guardianId"
-                      required
-                      defaultValue={editingChild.guardianId}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    >
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
+                    <div className="max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                       {guardians.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
+                        <label key={g.id} className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="guardianIds"
+                            value={g.id}
+                            defaultChecked={editingChild.guardianIds?.includes(g.id) || editingChild.guardianId === g.id}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs font-medium text-slate-700">{g.name}</span>
+                        </label>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -8313,6 +8585,78 @@ export default function App() {
           </div>
         )}
 
+        {showInviteGuardianModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowInviteGuardianModal(false)}
+              className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900">Convidar Responsável</h3>
+                </div>
+                <button onClick={() => setShowInviteGuardianModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleInviteGuardian();
+              }} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome do Responsável</label>
+                  <input
+                    required
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    type="text"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="Nome completo"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail para Convite</label>
+                  <input
+                    required
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    type="email"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    placeholder="exemplo@email.com"
+                  />
+                </div>
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                  <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mb-1">Como funciona?</p>
+                  <p className="text-xs text-indigo-700 leading-relaxed">
+                    Um link exclusivo será gerado. Você poderá copiá-lo e enviá-lo para o responsável. 
+                    Ao acessar o link, ele completará o cadastro com seus dados pessoais.
+                  </p>
+                </div>
+                <button
+                  disabled={submitting}
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Gerar Link de Convite"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
       {/* Removed PIN Modal */}
 
       {/* Bottom Navigation Bar */}
@@ -8400,54 +8744,6 @@ export default function App() {
 
       {/* Padding for bottom nav */}
       <div className="h-24 md:hidden" />
-
-      {/* Notifications */}
-      <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">
-        <AnimatePresence>
-          {notifications.map((n) => (
-            <motion.div
-              key={n.id}
-              initial={{ opacity: 0, x: 50, scale: 0.9 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 20, scale: 0.95 }}
-              className="pointer-events-auto bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex gap-4 items-start group relative overflow-hidden"
-            >
-              <div className={`p-2 rounded-xl shrink-0 ${
-                n.type === "success" ? "bg-emerald-50 text-emerald-600" :
-                n.type === "error" ? "bg-rose-50 text-rose-600" :
-                n.type === "warning" ? "bg-amber-50 text-amber-600" :
-                "bg-indigo-50 text-indigo-600"
-              }`}>
-                {n.type === "success" ? <CheckCircle2 className="w-5 h-5" /> :
-                 n.type === "error" ? <XCircle className="w-5 h-5" /> :
-                 n.type === "warning" ? <AlertTriangle className="w-5 h-5" /> :
-                 <Info className="w-5 h-5" />}
-              </div>
-              <div className="flex-1 min-w-0 pr-6">
-                {n.title && <h4 className="text-sm font-bold text-slate-900 mb-0.5">{n.title}</h4>}
-                <p className="text-xs text-slate-500 font-medium leading-relaxed">{n.message}</p>
-              </div>
-              <button 
-                onClick={() => removeNotification(n.id)}
-                className="absolute top-2 right-2 p-1 text-slate-300 hover:text-slate-500 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <motion.div 
-                initial={{ width: "100%" }}
-                animate={{ width: "0%" }}
-                transition={{ duration: 5, ease: "linear" }}
-                className={`absolute bottom-0 left-0 h-1 ${
-                  n.type === "success" ? "bg-emerald-500" :
-                  n.type === "error" ? "bg-rose-500" :
-                  n.type === "warning" ? "bg-amber-500" :
-                  "bg-indigo-500"
-                }`}
-              />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
 
       {/* Entry Details Modal */}
       <AnimatePresence>
@@ -8848,5 +9144,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
-  );
+  </Layout>
+);
 }

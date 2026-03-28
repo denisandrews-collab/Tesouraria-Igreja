@@ -4598,183 +4598,187 @@ export default function App() {
         </div>
 
         {/* Header Section */}
-        <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 print:hidden">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="w-8 h-8 md:w-10 md:h-10 bg-indigo-600 rounded-lg md:rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                <Wallet className="w-5 h-5 md:w-6 md:h-6 text-white" />
-              </div>
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
-                {churchName} <span className="text-indigo-600">Digital</span>
-              </h1>
-              {firebaseStatus === "error" && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
-                  <AlertTriangle className="w-2.5 h-2.5" />
-                  Nuvem Offline
-                </div>
-              )}
-              {firebaseStatus === "online" && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
-                  <CheckCircle2 className="w-2.5 h-2.5" />
-                  Conectado
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 ml-10 md:ml-13">
-              <p className="text-xs md:text-sm text-slate-500 font-medium">Gestão da Igreja</p>
-              <div className="w-1 h-1 bg-slate-300 rounded-full" />
-              <p className="text-xs md:text-sm text-slate-400 font-medium">
-                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {(userRole === "master" || userRole === "junior") && (
-              <button
-                onClick={() => setShowValues(!showValues)}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
-              >
-                {showValues ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                <span className="text-[10px] font-bold uppercase tracking-widest">{showValues ? "Ocultar" : "Mostrar"}</span>
-              </button>
-            )}
-            <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl text-slate-500">
-              <Clock className="w-4 h-4" />
-              <span className="text-[10px] font-bold tabular-nums">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-red-600 hover:border-red-200 transition-all shadow-sm group"
-              title="Sair do Sistema"
-            >
-              <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-bold uppercase tracking-widest">Sair</span>
-            </button>
-          </div>
-        </header>
-
-        {/* Header with Access Management */}
-        {userRole === "master" && (
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => setShowPermissionModal({ show: true, tabId: "dashboard" })}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-            >
-              <Shield className="w-4 h-4" />
-              GERENCIAR ACESSO
-            </button>
-          </div>
-        )}
-
-        {/* Summary Stats - Bento Grid Style */}
-        {(userRole === "master" || userRole === "junior") ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 print:grid-cols-3 print:gap-4">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="md:col-span-2 bg-slate-900 p-6 md:p-8 rounded-[2rem] shadow-xl shadow-indigo-100 flex flex-col justify-between relative overflow-hidden group print:shadow-none print:border print:border-slate-200 print:bg-white print:text-slate-900 print:rounded-xl"
-            >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-indigo-500/20 transition-colors print:hidden" />
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-8 print:mb-4">
-                  <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md print:bg-slate-100 print:text-slate-900">
-                    <Wallet className="w-6 h-6 text-indigo-300 print:text-slate-600" />
+        {activeTab === "dashboard" && (
+          <>
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 print:hidden">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 md:gap-3">
+                  <div className="w-8 h-8 md:w-10 md:h-10 bg-indigo-600 rounded-lg md:rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                    <Wallet className="w-5 h-5 md:w-6 md:h-6 text-white" />
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/20 print:border-slate-200 print:text-slate-600">
-                    <TrendingUp className="w-3 h-3" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">+{stats.growth.toFixed(1)}%</span>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-500">Patrimônio Total Acumulado</p>
-                  <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight tabular-nums print:text-slate-900 print:text-3xl">
-                    <span className="text-indigo-400 text-xl md:text-2xl mr-2 print:text-slate-400">R$</span>
-                    {showValues ? stats.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : "••••"}
-                  </h2>
-                </div>
-              </div>
-              <div className="relative z-10 mt-8 flex items-center gap-4 print:hidden">
-                <div className="flex -space-x-2">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
-                      <img src={`https://picsum.photos/seed/user${i}/32/32`} alt="user" referrerPolicy="no-referrer" />
+                  <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
+                    {churchName} <span className="text-indigo-600">Digital</span>
+                  </h1>
+                  {firebaseStatus === "error" && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                      <AlertTriangle className="w-2.5 h-2.5" />
+                      Nuvem Offline
                     </div>
-                  ))}
+                  )}
+                  {firebaseStatus === "online" && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      Conectado
+                    </div>
+                  )}
                 </div>
-                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Monitorado por {stats.uniqueTreasurers.length} tesoureiros</p>
+                <div className="flex items-center gap-2 ml-10 md:ml-13">
+                  <p className="text-xs md:text-sm text-slate-500 font-medium">Gestão da Igreja</p>
+                  <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                  <p className="text-xs md:text-sm text-slate-400 font-medium">
+                    {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                </div>
               </div>
-            </motion.div>
+              <div className="flex items-center gap-3">
+                {(userRole === "master" || userRole === "junior") && (
+                  <button
+                    onClick={() => setShowValues(!showValues)}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                  >
+                    {showValues ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    <span className="text-[10px] font-bold uppercase tracking-widest">{showValues ? "Ocultar" : "Mostrar"}</span>
+                  </button>
+                )}
+                <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl text-slate-500">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-[10px] font-bold tabular-nums">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-red-600 hover:border-red-200 transition-all shadow-sm group"
+                  title="Sair do Sistema"
+                >
+                  <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Sair</span>
+                </button>
+              </div>
+            </header>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm flex flex-col justify-between group hover:border-indigo-200 transition-colors print:rounded-xl print:shadow-none"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 group-hover:scale-110 transition-transform print:bg-slate-50 print:text-slate-600">
-                  <ArrowUpRight className="w-6 h-6" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Dízimos</span>
+            {/* Header with Access Management */}
+            {userRole === "master" && (
+              <div className="flex justify-end mb-4">
+                <button
+                  onClick={() => setShowPermissionModal({ show: true, tabId: "dashboard" })}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+                >
+                  <Shield className="w-4 h-4" />
+                  GERENCIAR ACESSO
+                </button>
               </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900 tabular-nums print:text-xl">
-                  {formatCurrency(stats.dizimos)}
-                </p>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden print:hidden">
-                  <div 
-                    className="bg-indigo-600 h-full rounded-full" 
-                    style={{ width: `${(stats.dizimos / (stats.total || 1)) * 100}%` }} 
-                  />
-                </div>
-              </div>
-            </motion.div>
+            )}
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm flex flex-col justify-between group hover:border-amber-200 transition-colors print:rounded-xl print:shadow-none"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-amber-50 rounded-2xl text-amber-600 group-hover:scale-110 transition-transform print:bg-slate-50 print:text-slate-600">
-                  <ArrowDownRight className="w-6 h-6" />
+            {/* Summary Stats - Bento Grid Style */}
+            {(userRole === "master" || userRole === "junior") ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 print:grid-cols-3 print:gap-4">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="md:col-span-2 bg-slate-900 p-6 md:p-8 rounded-[2rem] shadow-xl shadow-indigo-100 flex flex-col justify-between relative overflow-hidden group print:shadow-none print:border print:border-slate-200 print:bg-white print:text-slate-900 print:rounded-xl"
+                >
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-indigo-500/20 transition-colors print:hidden" />
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-8 print:mb-4">
+                      <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md print:bg-slate-100 print:text-slate-900">
+                        <Wallet className="w-6 h-6 text-indigo-300 print:text-slate-600" />
+                      </div>
+                      <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/20 print:border-slate-200 print:text-slate-600">
+                        <TrendingUp className="w-3 h-3" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">+{stats.growth.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400 print:text-slate-500">Patrimônio Total Acumulado</p>
+                      <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight tabular-nums print:text-slate-900 print:text-3xl">
+                        <span className="text-indigo-400 text-xl md:text-2xl mr-2 print:text-slate-400">R$</span>
+                        {showValues ? stats.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : "••••"}
+                      </h2>
+                    </div>
+                  </div>
+                  <div className="relative z-10 mt-8 flex items-center gap-4 print:hidden">
+                    <div className="flex -space-x-2">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
+                          <img src={`https://picsum.photos/seed/user${i}/32/32`} alt="user" referrerPolicy="no-referrer" />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">Monitorado por {stats.uniqueTreasurers.length} tesoureiros</p>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm flex flex-col justify-between group hover:border-indigo-200 transition-colors print:rounded-xl print:shadow-none"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 group-hover:scale-110 transition-transform print:bg-slate-50 print:text-slate-600">
+                      <ArrowUpRight className="w-6 h-6" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Dízimos</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-900 tabular-nums print:text-xl">
+                      {formatCurrency(stats.dizimos)}
+                    </p>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden print:hidden">
+                      <div 
+                        className="bg-indigo-600 h-full rounded-full" 
+                        style={{ width: `${(stats.dizimos / (stats.total || 1)) * 100}%` }} 
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm flex flex-col justify-between group hover:border-amber-200 transition-colors print:rounded-xl print:shadow-none"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-amber-50 rounded-2xl text-amber-600 group-hover:scale-110 transition-transform print:bg-slate-50 print:text-slate-600">
+                      <ArrowDownRight className="w-6 h-6" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ofertas</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-900 tabular-nums print:text-xl">
+                      {formatCurrency(stats.ofertas)}
+                    </p>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden print:hidden">
+                      <div 
+                        className="bg-amber-500 h-full rounded-full" 
+                        style={{ width: `${(stats.ofertas / (stats.total || 1)) * 100}%` }} 
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            ) : (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center">
+                    <Shield className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-800">Acesso Restrito</h2>
+                    <p className="text-sm text-slate-500">Saldos e gráficos estão disponíveis apenas para usuários Master.</p>
+                  </div>
                 </div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ofertas</span>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900 tabular-nums print:text-xl">
-                  {formatCurrency(stats.ofertas)}
-                </p>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden print:hidden">
-                  <div 
-                    className="bg-amber-500 h-full rounded-full" 
-                    style={{ width: `${(stats.ofertas / (stats.total || 1)) * 100}%` }} 
-                  />
+                <div className="flex gap-3 w-full md:w-auto">
+                  <button 
+                    onClick={() => setActiveTab("form")}
+                    className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-100"
+                  >
+                    Novo Registro
+                  </button>
                 </div>
               </div>
-            </motion.div>
-          </div>
-        ) : (
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center">
-                <Shield className="w-6 h-6 text-slate-400" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">Acesso Restrito</h2>
-                <p className="text-sm text-slate-500">Saldos e gráficos estão disponíveis apenas para usuários Master.</p>
-              </div>
-            </div>
-            <div className="flex gap-3 w-full md:w-auto">
-              <button 
-                onClick={() => setActiveTab("form")}
-                className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-100"
-              >
-                Novo Registro
-              </button>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         <AnimatePresence mode="wait">

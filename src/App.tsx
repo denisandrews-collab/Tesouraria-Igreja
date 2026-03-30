@@ -2049,11 +2049,25 @@ export default function App() {
         } catch (authError: any) {
           console.error("Firebase Auth registration failed:", authError);
           setSubmitting(false);
+          
+          let errorMessage = "Erro ao criar conta de acesso. Tente novamente.";
+          
           if (authError.code === 'auth/email-already-in-use') {
             setGuardianAlreadyExists(true);
             return null;
+          } else if (authError.code === 'auth/weak-password') {
+            errorMessage = "A senha escolhida é muito fraca. Use pelo menos 6 caracteres.";
+          } else if (authError.code === 'auth/operation-not-allowed') {
+            errorMessage = "O cadastro por E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
+          } else if (authError.code === 'auth/invalid-email') {
+            errorMessage = "O e-mail digitado é inválido.";
+          } else if (authError.code === 'auth/unauthorized-domain') {
+            errorMessage = "Este domínio não está autorizado no Firebase. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
+          } else {
+            errorMessage = `Erro no Firebase (${authError.code}): ${authError.message}`;
           }
-          addNotification("error", "Erro ao criar conta de acesso. Tente novamente.");
+          
+          addNotification("error", errorMessage);
           return null;
         }
       }

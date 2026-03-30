@@ -736,6 +736,7 @@ export default function App() {
   const [guardianActiveTab, setGuardianActiveTab] = useState<"home" | "kids" | "history" | "profile">("home");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
+  const [registrationGuardianData, setRegistrationGuardianData] = useState<{ name: string; email: string; phone: string } | null>(null);
 
   // Consolidate user fetching into a single effect that depends on the authenticated user and their profile
   useEffect(() => {
@@ -1065,19 +1066,33 @@ export default function App() {
       const guardiansSnapshot = await getDocs(qGuardians);
 
       if (usersSnapshot.empty && guardiansSnapshot.empty) {
-        addNotification("warning", "E-mail não encontrado em nossa base de dados. Redirecionando para o cadastro...");
-        
-        // Redirect to registration based on the current context
-        if (isPublicRegistration) {
-          setRegistrationStep("guardian");
-        } else if (isMobileCheckin) {
-          setMobileStep("registration-guardian");
-        } else {
-          setIsPublicRegistration(true);
-          setRegistrationStep("guardian");
+        // Se não está no Firestore, tentamos enviar o e-mail de qualquer forma.
+        // Se o e-mail não existir no Firebase Auth, o Firebase retornará um erro (ou não, dependendo da config de segurança).
+        // Mas se retornar auth/user-not-found, aí sim redirecionamos para o cadastro.
+        try {
+          await sendPasswordResetEmail(auth, emailToUse);
+          addNotification("success", "E-mail de recuperação enviado! Verifique sua caixa de entrada. Após redefinir sua senha, faça login para completar seu cadastro.");
+          setGuardianAlreadyExists(false);
+          return;
+        } catch (authError: any) {
+          if (authError.code === "auth/user-not-found") {
+            addNotification("warning", "E-mail não encontrado em nossa base de dados. Redirecionando para o cadastro...");
+            
+            // Redireciona para o cadastro baseado no contexto atual
+            if (isPublicRegistration) {
+              setRegistrationStep("guardian");
+            } else if (isMobileCheckin) {
+              setMobileStep("registration-guardian");
+            } else {
+              setIsPublicRegistration(true);
+              setRegistrationStep("guardian");
+            }
+            setIsLoggingIn(false);
+            return;
+          }
+          // Se for outro erro (ex: domínio não autorizado), deixa o catch externo lidar
+          throw authError;
         }
-        setIsLoggingIn(false);
-        return;
       }
 
       await sendPasswordResetEmail(auth, emailToUse);
@@ -2038,24 +2053,32 @@ export default function App() {
         return null;
       }
 
-      let uid = Math.random().toString(36).substring(2, 15);
+      let uid = user?.uid || Math.random().toString(36).substring(2, 15);
       
       // Se tiver senha e Firebase habilitado, cria a conta no Auth
-      if (password && auth && isFirebaseEnabled) {
+      if (password && auth && isFirebaseEnabled && !user) {
         try {
           const userCredential = await createUserWithEmailAndPassword(auth, data.email || `${data.phone}@igreja.com`, password);
           uid = userCredential.user.uid;
           setUser(userCredential.user);
         } catch (authError: any) {
           console.error("Firebase Auth registration failed:", authError);
-          setSubmitting(false);
-          
-          let errorMessage = "Erro ao criar conta de acesso. Tente novamente.";
           
           if (authError.code === 'auth/email-already-in-use') {
+            // Se o e-mail já existe no Auth, tentamos ver se o usuário já está logado
+            // ou se podemos apenas prosseguir para criar o documento no Firestore
+            // se o usuário souber a senha (mas aqui não temos como validar a senha sem logar)
+            // Então mostramos o modal de "já existe"
+            setRegistrationGuardianData({ name: data.name, email: data.email || "", phone: data.phone });
             setGuardianAlreadyExists(true);
+            setSubmitting(false);
             return null;
-          } else if (authError.code === 'auth/weak-password') {
+          }
+          
+          setSubmitting(false);
+          let errorMessage = "Erro ao criar conta de acesso. Tente novamente.";
+          
+          if (authError.code === 'auth/weak-password') {
             errorMessage = "A senha escolhida é muito fraca. Use pelo menos 6 caracteres.";
           } else if (authError.code === 'auth/operation-not-allowed') {
             errorMessage = `O cadastro por E-mail/Senha não está ativado no Firebase Console para o projeto '${firebaseConfig.projectId}'. Por favor, ative-o em Authentication > Sign-in method.`;
@@ -2913,6 +2936,18 @@ export default function App() {
   };
 
   // Removed handleLogoutMaster
+
+  useEffect(() => {
+    if (isMobileCheckin && user) {
+      const currentGuardian = guardians.find(g => g.email === user.email);
+      if (!currentGuardian && mobileStep !== "registration-guardian" && mobileStep !== "registration-children") {
+        setMobileStep("registration-guardian");
+      } else if (currentGuardian && mobileStep === "phone") {
+        setMobileStep("portal");
+        setSelectedGuardian(currentGuardian);
+      }
+    }
+  }, [user, isMobileCheckin, guardians, mobileStep]);
 
   if (isAcceptingInvitation && invitationData) {
     return (
@@ -3833,7 +3868,7 @@ if (isPublicRegistration) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
                     <div className="relative">
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input name="name" required className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Seu nome completo" />
+                      <input name="name" required defaultValue={user?.displayName || ""} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Seu nome completo" />
                     </div>
                   </div>
                   
@@ -3849,7 +3884,7 @@ if (isPublicRegistration) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
                     <div className="relative">
                       <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input name="email" type="email" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="seu@email.com" />
+                      <input name="email" type="email" defaultValue={user?.email || ""} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="seu@email.com" />
                     </div>
                   </div>
 
@@ -3857,7 +3892,7 @@ if (isPublicRegistration) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Crie uma Senha</label>
                     <div className="relative">
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input name="password" required type="password" minLength={6} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Mínimo 6 caracteres" />
+                      <input name="password" required={!user} disabled={!!user} type="password" minLength={6} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all disabled:opacity-50" placeholder={user ? "Sua conta já está conectada" : "Mínimo 6 caracteres"} />
                     </div>
                   </div>
                 </div>
@@ -4042,17 +4077,6 @@ if (isMobileCheckin) {
 
     const currentGuardian = user ? guardians.find(g => g.email === user.email) : null;
     
-    // If logged in but no guardian record found, force registration
-    if (user && !currentGuardian && mobileStep !== "registration-guardian" && mobileStep !== "registration-children") {
-      setMobileStep("registration-guardian");
-    }
-
-    // If logged in and has guardian record, show portal by default
-    if (user && currentGuardian && mobileStep === "phone") {
-      setMobileStep("portal");
-      setSelectedGuardian(currentGuardian);
-    }
-
     return (
       <Layout notifications={notifications} removeNotification={removeNotification}>
         <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans pb-24">
@@ -4445,7 +4469,7 @@ if (isMobileCheckin) {
                         <button 
                           onClick={() => {
                             setGuardianAlreadyExists(false);
-                            addNotification("info", "Funcionalidade de troca de senha em breve.");
+                            handleForgotPassword(registrationGuardianData?.email);
                           }}
                           className="w-full py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-bold uppercase tracking-widest hover:border-indigo-200 hover:text-indigo-600 transition-all"
                         >
@@ -4522,6 +4546,7 @@ if (isMobileCheckin) {
                         <input 
                           name="name" 
                           required 
+                          defaultValue={user?.displayName || ""}
                           placeholder="Como devemos te chamar?"
                           className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                         />
@@ -4548,6 +4573,7 @@ if (isMobileCheckin) {
                           name="email" 
                           type="email" 
                           required
+                          defaultValue={user?.email || ""}
                           placeholder="seu@email.com"
                           className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                         />
@@ -4560,9 +4586,10 @@ if (isMobileCheckin) {
                         <input 
                           name="password" 
                           type="password" 
-                          required
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                          required={!user}
+                          placeholder={user ? "Sua conta já está conectada" : "Mínimo 6 caracteres"}
+                          disabled={!!user}
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium disabled:opacity-50" 
                         />
                       </div>
                     </div>

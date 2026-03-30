@@ -81,7 +81,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
 import autoTable from "jspdf-autotable";
 import JsBarcode from 'jsbarcode';
-import { db, auth, isFirebaseEnabled } from "./firebase";
+import { db, auth, isFirebaseEnabled, firebaseConfig } from "./firebase";
 import { 
   collection, 
   addDoc, 
@@ -984,7 +984,7 @@ export default function App() {
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
       } else if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
-        message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, use o Login com Google ou peça ao administrador para ativar o provedor de E-mail/Senha.";
+        message = `O provedor de E-mail/Senha não está ativado no Firebase Console para o projeto '${firebaseConfig.projectId}'. Por favor, verifique se você está no projeto correto ou use o Login com Google.`;
       } else if (error.code === "auth/user-not-found" || error.code === "auth/invalid-credential") {
         message = "E-mail não encontrado. Redirecionando para o cadastro...";
         setIsRegistering(true);
@@ -1091,7 +1091,7 @@ export default function App() {
       if (error.code === "auth/unauthorized-domain") {
         message = "Este domínio não está autorizado no Firebase Console. Adicione '" + window.location.hostname + "' em Authentication > Settings > Authorized Domains.";
       } else if (error.code === "auth/configuration-not-found" || error.code === "auth/operation-not-allowed") {
-        message = "O provedor de E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
+        message = `O provedor de E-mail/Senha não está ativado no Firebase Console para o projeto '${firebaseConfig.projectId}'. Por favor, ative-o em Authentication > Sign-in method.`;
       } else if (error.code === "auth/user-not-found") {
         addNotification("warning", "E-mail não encontrado. Redirecionando para o cadastro...");
         setIsPublicRegistration(true);
@@ -2058,7 +2058,7 @@ export default function App() {
           } else if (authError.code === 'auth/weak-password') {
             errorMessage = "A senha escolhida é muito fraca. Use pelo menos 6 caracteres.";
           } else if (authError.code === 'auth/operation-not-allowed') {
-            errorMessage = "O cadastro por E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.";
+            errorMessage = `O cadastro por E-mail/Senha não está ativado no Firebase Console para o projeto '${firebaseConfig.projectId}'. Por favor, ative-o em Authentication > Sign-in method.`;
           } else if (authError.code === 'auth/invalid-email') {
             errorMessage = "O e-mail digitado é inválido.";
           } else if (authError.code === 'auth/unauthorized-domain') {

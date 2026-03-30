@@ -34,4 +34,4 @@ if (typeof window !== "undefined" && app) {
     });
 }
 
-export { app, db, auth, analytics, isFirebaseEnabled };
+export { app, db, auth, analytics, isFirebaseEnabled, firebaseConfig };

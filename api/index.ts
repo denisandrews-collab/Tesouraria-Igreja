@@ -64,6 +64,7 @@ try {
     CREATE TABLE IF NOT EXISTS entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       treasurer TEXT NOT NULL,
+      treasurer_email TEXT,
       date TEXT NOT NULL,
       type TEXT NOT NULL,
       amount REAL NOT NULL,
@@ -166,7 +167,8 @@ const columns = [
   { name: "notes", type: "TEXT" },
   { name: "is_reversed", type: "INTEGER DEFAULT 0" },
   { name: "reversal_reason", type: "TEXT" },
-  { name: "period", type: "TEXT" }
+  { name: "period", type: "TEXT" },
+  { name: "treasurer_email", type: "TEXT" }
 ];
 
 columns.forEach(col => {
@@ -261,7 +263,7 @@ app.use(express.json());
   });
 
   app.post("/api/entries", async (req, res) => {
-    const { treasurer, date, type, amount, counts, notes, period } = req.body;
+    const { treasurer, treasurer_email, date, type, amount, counts, notes, period } = req.body;
     
     if (!treasurer || !date || !type || !amount) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -270,11 +272,12 @@ app.use(express.json());
     try {
       const entryData = {
         treasurer,
+        treasurer_email: treasurer_email || null,
         date,
         type,
         amount,
         period: period || "Manhã",
-        counts: counts ? JSON.stringify(counts) : null,
+        counts: counts ? (typeof counts === 'string' ? counts : JSON.stringify(counts)) : null,
         notes: notes || null,
         is_reversed: 0,
         reversal_reason: null,
@@ -299,8 +302,8 @@ app.use(express.json());
           throw new Error("No database available to save entry");
         }
         const info = db.prepare(
-          "INSERT INTO entries (treasurer, date, type, amount, counts, notes, period) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        ).run(treasurer, date, type, amount, counts ? JSON.stringify(counts) : null, notes || null, period || "Manhã");
+          "INSERT INTO entries (treasurer, treasurer_email, date, type, amount, counts, notes, period) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(treasurer, treasurer_email || null, date, type, amount, counts ? (typeof counts === 'string' ? counts : JSON.stringify(counts)) : null, notes || null, period || "Manhã");
         finalEntry = { id: Number(info.lastInsertRowid), ...entryData };
       }
       

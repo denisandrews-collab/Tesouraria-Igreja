@@ -22,6 +22,7 @@
         "date": { "type": "string", "format": "date" },
         "period": { "type": "string", "enum": ["Manhã", "Tarde", "Noite"] },
         "treasurer": { "type": "string" },
+        "treasurer_email": { "type": "string", "format": "email" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["amount", "type", "date", "period", "treasurer"]

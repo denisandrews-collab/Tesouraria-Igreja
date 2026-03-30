@@ -21,6 +21,7 @@ service cloud.firestore {
     //   - date: string (required, date format)
     //   - period: string (required, 'Manhã', 'Tarde', 'Noite')
     //   - treasurer: string (required)
+    //   - treasurer_email: string (optional, email format)
     //   - timestamp: timestamp (optional)
     //
     // Collection: attendance
@@ -125,7 +126,8 @@ service cloud.firestore {
              data.type in ['Dízimo', 'Oferta'] &&
              data.date is string &&
              data.period in ['Manhã', 'Tarde', 'Noite'] &&
-             data.treasurer is string && data.treasurer.size() > 0;
+             data.treasurer is string && data.treasurer.size() > 0 &&
+             (!('treasurer_email' in data) || (data.treasurer_email == null || isValidEmail(data.treasurer_email)));
     }
 
     function isValidAttendance(data) {

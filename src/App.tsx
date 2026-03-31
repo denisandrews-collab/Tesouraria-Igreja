@@ -734,11 +734,13 @@ export default function App() {
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState<string | null>(null);
   const [showDigitalCard, setShowDigitalCard] = useState(false);
   const [mobilePhone, setMobilePhone] = useState("");
+  const mobileRegistrationFormRef = React.useRef<HTMLFormElement>(null);
   const [mobileStep, setMobileStep] = useState<"phone" | "selection" | "success" | "registration-guardian" | "registration-children" | "portal">("phone");
   const [guardianActiveTab, setGuardianActiveTab] = useState<"home" | "kids" | "history" | "profile">("home");
   const [registrationStep, setRegistrationStep] = useState<"guardian" | "children" | "success">("guardian");
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
   const [registrationGuardianData, setRegistrationGuardianData] = useState<{ name: string; email: string; phone: string } | null>(null);
+  const registrationFormRef = React.useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (user && !registrationGuardianId && isPublicRegistration) {
@@ -1757,7 +1759,13 @@ export default function App() {
       const childrenRes = await fetch(`/api/children?t=${Date.now()}`);
       if (childrenRes.ok) {
         const data = await childrenRes.json();
-        if (Array.isArray(data)) setChildren(data);
+        if (Array.isArray(data)) {
+          const parsedChildren = data.map((c: any) => ({
+            ...c,
+            guardianIds: typeof c.guardianIds === 'string' ? JSON.parse(c.guardianIds) : (c.guardianIds || [])
+          }));
+          setChildren(parsedChildren);
+        }
       }
 
       const roomsRes = await fetch(`/api/rooms?t=${Date.now()}`);
@@ -4063,23 +4071,25 @@ if (isPublicRegistration) {
                   ))}
                 </div>
 
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const name = formData.get('name') as string;
-                  const birthDate = formData.get('birthDate') as string;
-                  
-                  if (!name || !birthDate) return;
+                <form 
+                  ref={registrationFormRef}
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    const name = formData.get('name') as string;
+                    const birthDate = formData.get('birthDate') as string;
+                    
+                    if (!name || !birthDate) return;
 
-                  await handleAddChild({
-                    name,
-                    birthDate,
-                    guardianId: registrationGuardianId!,
-                    allergies: formData.get('allergies') as string,
-                    notes: formData.get('notes') as string,
-                  });
-                  e.currentTarget.reset();
-                }} className="space-y-4 pt-6 border-t border-slate-100">
+                    await handleAddChild({
+                      name,
+                      birthDate,
+                      guardianId: registrationGuardianId!,
+                      allergies: formData.get('allergies') as string,
+                      notes: formData.get('notes') as string,
+                    });
+                    e.currentTarget.reset();
+                  }} className="space-y-4 pt-6 border-t border-slate-100">
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                     <UserPlus className="w-3 h-3" /> Adicionar Criança
                   </p>
@@ -4114,11 +4124,32 @@ if (isPublicRegistration) {
 
                     <button 
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        // Check if there's data in the form that hasn't been saved yet
+                        if (registrationFormRef.current) {
+                          const formData = new FormData(registrationFormRef.current);
+                          const name = formData.get('name') as string;
+                          const birthDate = formData.get('birthDate') as string;
+                          
+                          if (name && birthDate) {
+                            // Automatically save the child if the form is filled
+                            await handleAddChild({
+                              name,
+                              birthDate,
+                              guardianId: registrationGuardianId!,
+                              allergies: formData.get('allergies') as string,
+                              notes: formData.get('notes') as string,
+                            });
+                            registrationFormRef.current.reset();
+                          }
+                        }
+
+                        // Now check if we have at least one child saved
                         const hasChildren = children.some(c => 
                           (registrationGuardianId && c.guardianIds?.includes(String(registrationGuardianId))) || 
                           (registrationGuardianId && String(c.guardianId) === String(registrationGuardianId))
                         );
+                        
                         if (!hasChildren) {
                           addNotification("info", "Adicione pelo menos uma criança para finalizar.");
                           return;
@@ -4943,18 +4974,20 @@ if (isMobileCheckin) {
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest">Adicionar Criança</h3>
                   </div>
                   
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.currentTarget);
-                    await handleAddChild({
-                      name: formData.get('name') as string,
-                      birthDate: formData.get('birthDate') as string,
-                      guardianId: selectedGuardian.id,
-                      allergies: formData.get('allergies') as string,
-                      notes: formData.get('notes') as string,
-                    });
-                    e.currentTarget.reset();
-                  }} className="space-y-4">
+                  <form 
+                    ref={mobileRegistrationFormRef}
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.currentTarget);
+                      await handleAddChild({
+                        name: formData.get('name') as string,
+                        birthDate: formData.get('birthDate') as string,
+                        guardianId: selectedGuardian.id,
+                        allergies: formData.get('allergies') as string,
+                        notes: formData.get('notes') as string,
+                      });
+                      e.currentTarget.reset();
+                    }} className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
                       <input name="name" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm font-medium" />
@@ -4985,11 +5018,32 @@ if (isMobileCheckin) {
 
                       <button 
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
+                          // Check if there's data in the form that hasn't been saved yet
+                          if (mobileRegistrationFormRef.current) {
+                            const formData = new FormData(mobileRegistrationFormRef.current);
+                            const name = formData.get('name') as string;
+                            const birthDate = formData.get('birthDate') as string;
+                            
+                            if (name && birthDate) {
+                              // Automatically save the child if the form is filled
+                              await handleAddChild({
+                                name,
+                                birthDate,
+                                guardianId: selectedGuardian.id,
+                                allergies: formData.get('allergies') as string,
+                                notes: formData.get('notes') as string,
+                              });
+                              mobileRegistrationFormRef.current.reset();
+                            }
+                          }
+
+                          // Now check if we have at least one child saved
                           const hasChildren = children.some(c => 
                             (selectedGuardian && c.guardianIds?.includes(String(selectedGuardian.id))) || 
                             (selectedGuardian && String(c.guardianId) === String(selectedGuardian.id))
                           );
+                          
                           if (!hasChildren) {
                             addNotification("info", "Adicione pelo menos uma criança para finalizar.");
                             return;

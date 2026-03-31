@@ -115,7 +115,8 @@ try {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       birthDate TEXT NOT NULL,
-      guardianId TEXT NOT NULL,
+      guardianId TEXT,
+      guardianIds TEXT,
       allergies TEXT,
       notes TEXT,
       kinship TEXT,
@@ -649,8 +650,10 @@ app.use(express.json());
   app.post("/api/children", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      const { id, name, birthDate, guardianId, allergies, notes, kinship } = req.body;
-      db.prepare("INSERT INTO children (id, name, birthDate, guardianId, allergies, notes, kinship) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, name, birthDate, guardianId, allergies, notes, kinship);
+      const { id, name, birthDate, guardianId, guardianIds, allergies, notes, kinship } = req.body;
+      db.prepare("INSERT INTO children (id, name, birthDate, guardianId, guardianIds, allergies, notes, kinship) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        id, name, birthDate, guardianId, JSON.stringify(guardianIds || []), allergies, notes, kinship
+      );
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to save child" });
@@ -667,7 +670,10 @@ app.use(express.json());
       if (fields.length === 0) return res.json({ success: true });
 
       const setClause = fields.map(f => `${f} = ?`).join(", ");
-      const values = fields.map(f => updates[f]);
+      const values = fields.map(f => {
+        if (f === 'guardianIds') return JSON.stringify(updates[f] || []);
+        return updates[f];
+      });
 
       db.prepare(`UPDATE children SET ${setClause} WHERE id = ?`).run(...values, id);
       res.json({ success: true });

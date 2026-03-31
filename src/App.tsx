@@ -2050,12 +2050,22 @@ export default function App() {
       setSubmitting(true);
       const { password, ...data } = guardianData;
       
-      // Check if phone or CPF already exists in local state
+      // Check if phone, CPF, or Name+Phone already exists in local state
       const existingByPhone = guardians.find(g => g.phone === data.phone);
       const existingByCPF = data.cpf ? guardians.find(g => g.cpf === data.cpf) : null;
+      const existingByNameAndPhone = guardians.find(g => 
+        g.name.toLowerCase().trim() === data.name.toLowerCase().trim() && 
+        g.phone === data.phone
+      );
+      const existingByEmail = data.email ? guardians.find(g => g.email?.toLowerCase().trim() === data.email?.toLowerCase().trim()) : null;
 
-      if (existingByPhone || existingByCPF) {
+      if (existingByPhone || existingByCPF || existingByNameAndPhone || existingByEmail) {
         setGuardianAlreadyExists(true);
+        setRegistrationGuardianData({ 
+          name: data.name, 
+          email: data.email || "", 
+          phone: data.phone 
+        });
         setSubmitting(false);
         return null;
       }
@@ -2154,7 +2164,19 @@ export default function App() {
         c.birthDate === childData.birthDate
       );
 
+      // If child exists and we are not providing kinship (which means we are trying to add it as new)
       if (existingChild && !childData.kinship) {
+        // Check if the current guardian is already linked to this child
+        const currentGuardianId = childData.guardianId || (childData.guardianIds && childData.guardianIds[0]);
+        const alreadyLinked = existingChild.guardianIds?.includes(currentGuardianId || "") || existingChild.guardianId === currentGuardianId;
+        
+        if (alreadyLinked) {
+          addNotification("info", "Esta criança já está cadastrada no seu perfil.");
+          setShowAddChildModal(false);
+          setSubmitting(false);
+          return existingChild.id;
+        }
+
         setChildAlreadyExists(existingChild);
         setShowKinshipInput(true);
         setSubmitting(false);
@@ -2162,10 +2184,22 @@ export default function App() {
       }
 
       const id = existingChild ? existingChild.id : Math.random().toString(36).substring(2, 15);
+      
+      let finalGuardianIds = childData.guardianIds || (childData.guardianId ? [childData.guardianId] : []);
+      if (existingChild) {
+        const currentGuardianId = childData.guardianId || (childData.guardianIds && childData.guardianIds[0]);
+        const existingIds = existingChild.guardianIds || (existingChild.guardianId ? [existingChild.guardianId] : []);
+        if (currentGuardianId && !existingIds.includes(currentGuardianId)) {
+          finalGuardianIds = [...existingIds, currentGuardianId];
+        } else {
+          finalGuardianIds = existingIds;
+        }
+      }
+
       const newChild = {
         ...childData,
         id,
-        guardianIds: childData.guardianIds || [childData.guardianId],
+        guardianIds: finalGuardianIds,
         created_at: existingChild ? existingChild.created_at : new Date().toISOString()
       };
 
@@ -2373,6 +2407,13 @@ export default function App() {
 
       // 3. Finalize
       if (firestoreSuccess || apiSuccess) {
+        // If the user deleted themselves, log them out
+        if (user && user.uid === id) {
+          handleLogout();
+          addNotification("success", "Seu cadastro foi excluído permanentemente.");
+          return;
+        }
+
         // Refresh all data to ensure consistency
         await fetchEntries();
         setShowDeleteGuardianConfirm(null);
@@ -3990,7 +4031,7 @@ if (isPublicRegistration) {
                 </div>
                 
                 <div className="space-y-4">
-                  {children.filter(c => c.guardianId === registrationGuardianId).map(child => (
+                  {children.filter(c => c.guardianIds?.includes(registrationGuardianId!) || c.guardianId === registrationGuardianId).map(child => (
                     <motion.div 
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4048,7 +4089,7 @@ if (isPublicRegistration) {
                       {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-5 h-5" /> Adicionar Criança</>}
                     </button>
                     
-                    {children.filter(c => c.guardianId === registrationGuardianId).length > 0 && (
+                    {children.filter(c => c.guardianIds?.includes(registrationGuardianId!) || c.guardianId === registrationGuardianId).length > 0 && (
                       <button 
                         type="button"
                         onClick={() => setRegistrationStep("success")}
@@ -4059,6 +4100,63 @@ if (isPublicRegistration) {
                     )}
                   </div>
                 </form>
+
+                {showKinshipInput && childAlreadyExists && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-6">
+                    <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md space-y-6 shadow-2xl animate-in fade-in zoom-in duration-300">
+                      <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600 mx-auto">
+                        <User className="w-10 h-10" />
+                      </div>
+                      <div className="text-center space-y-2">
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Criança já cadastrada!</h3>
+                        <p className="text-sm text-slate-500 font-medium">
+                          A criança <strong>{childAlreadyExists.name}</strong> já está no nosso sistema. 
+                          Por favor, informe seu grau de parentesco para continuar.
+                        </p>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Grau de Parentesco</label>
+                          <select 
+                            id="kinship-select-public"
+                            className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all text-sm font-medium"
+                          >
+                            <option value="Pai">Pai</option>
+                            <option value="Mãe">Mãe</option>
+                            <option value="Avô/Avó">Avô/Avó</option>
+                            <option value="Tio/Tia">Tio/Tia</option>
+                            <option value="Outro">Outro</option>
+                          </select>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            const kinship = (document.getElementById('kinship-select-public') as HTMLSelectElement).value;
+                            await handleAddChild({
+                              name: childAlreadyExists.name,
+                              birthDate: childAlreadyExists.birthDate,
+                              guardianId: registrationGuardianId!,
+                              allergies: childAlreadyExists.allergies || "",
+                              notes: childAlreadyExists.notes || "",
+                              kinship
+                            });
+                          }}
+                          className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                        >
+                          Confirmar Vínculo
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setShowKinshipInput(false);
+                            setChildAlreadyExists(null);
+                          }}
+                          className="w-full py-3 text-xs font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

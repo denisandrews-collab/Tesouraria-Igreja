@@ -161,6 +161,7 @@ interface Location {
 interface Guardian {
   id: string;
   name: string;
+  cpf?: string;
   phone: string;
   email?: string;
   photo?: string;
@@ -661,6 +662,7 @@ export default function App() {
   const [reversalReason, setReversalReason] = useState("");
   const [entryToReverse, setEntryToReverse] = useState<string | number | null>(null);
   const [showDeleteLocationConfirm, setShowDeleteLocationConfirm] = useState<string | number | null>(null);
+  const [showDeleteGuardianConfirm, setShowDeleteGuardianConfirm] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [attendanceEntries, setAttendanceEntries] = useState<Attendance[]>([]);
   const [locations, setLocations] = useState<Location[]>([
@@ -2045,9 +2047,11 @@ export default function App() {
       setSubmitting(true);
       const { password, ...data } = guardianData;
       
-      // Check if phone already exists in local state
+      // Check if phone or CPF already exists in local state
       const existingByPhone = guardians.find(g => g.phone === data.phone);
-      if (existingByPhone) {
+      const existingByCPF = data.cpf ? guardians.find(g => g.cpf === data.cpf) : null;
+
+      if (existingByPhone || existingByCPF) {
         setGuardianAlreadyExists(true);
         setSubmitting(false);
         return null;
@@ -2315,6 +2319,45 @@ export default function App() {
     } catch (error) {
       console.error("Error updating guardian:", error);
       addNotification("error", "Erro ao atualizar responsável.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteGuardian = async (id: string) => {
+    try {
+      setSubmitting(true);
+      if (db && isFirebaseEnabled) {
+        try {
+          await deleteDoc(doc(db, "guardians", id));
+          // If the guardian has a user account, we should ideally delete it too, 
+          // but we can't easily delete Auth users from client side without admin SDK.
+          // At least remove the user profile if it exists.
+          await deleteDoc(doc(db, "users", id));
+          
+          await fetchEntries();
+          setShowDeleteGuardianConfirm(null);
+          addNotification("success", "Responsável excluído com sucesso.");
+          return;
+        } catch (fsError) {
+          console.error("Firestore deleteGuardian failed, falling back to API:", fsError);
+        }
+      }
+
+      const response = await fetch(`/api/guardians/${id}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        await fetchEntries();
+        setShowDeleteGuardianConfirm(null);
+        addNotification("success", "Responsável excluído com sucesso.");
+      } else {
+        const errorData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
+        addNotification("error", `Erro ao excluir responsável: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      console.error("Error deleting guardian:", error);
+      addNotification("error", "Erro ao excluir responsável.");
     } finally {
       setSubmitting(false);
     }
@@ -3849,6 +3892,7 @@ if (isPublicRegistration) {
                 const formData = new FormData(e.currentTarget);
                 const guardianId = await handleAddGuardian({
                   name: formData.get('name') as string,
+                  cpf: formData.get('cpf') as string,
                   phone: formData.get('phone') as string,
                   email: formData.get('email') as string,
                   password: formData.get('password') as string,
@@ -3869,6 +3913,14 @@ if (isPublicRegistration) {
                     <div className="relative">
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                       <input name="name" required defaultValue={user?.displayName || ""} className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="Seu nome completo" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF do Responsável</label>
+                    <div className="relative">
+                      <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input name="cpf" required className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="000.000.000-00" />
                     </div>
                   </div>
                   
@@ -4303,6 +4355,13 @@ if (isMobileCheckin) {
                         >
                           <LogOut className="w-4 h-4" />
                           Sair da Conta
+                        </button>
+                        <button 
+                          onClick={() => setShowDeleteGuardianConfirm(selectedGuardian.id)}
+                          className="w-full py-4 bg-white border border-rose-100 text-rose-400 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-50 transition-all flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Excluir Cadastro
                         </button>
                       </div>
                     </div>
@@ -7449,15 +7508,23 @@ if (!user) {
                     {guardians.map(guardian => (
                       <div key={guardian.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative group">
                         {userRole === "master" && (
-                          <button
-                            onClick={() => {
-                              setEditingGuardian(guardian);
-                              setShowEditGuardianModal(true);
-                            }}
-                            className="absolute top-4 right-4 p-2 bg-slate-50 text-slate-400 rounded-xl opacity-0 group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                            <button
+                              onClick={() => {
+                                setEditingGuardian(guardian);
+                                setShowEditGuardianModal(true);
+                              }}
+                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setShowDeleteGuardianConfirm(guardian.id)}
+                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
@@ -9316,6 +9383,46 @@ if (!user) {
                   className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all shadow-sm"
                 >
                   Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDeleteGuardianConfirm && (
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteGuardianConfirm(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Excluir Cadastro?</h2>
+              <p className="text-slate-500 mb-8 font-medium">
+                Esta ação é irreversível. Todos os dados do responsável e o acesso ao aplicativo serão removidos permanentemente.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowDeleteGuardianConfirm(null)}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => handleDeleteGuardian(showDeleteGuardianConfirm as string)}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                >
+                  Confirmar Exclusão
                 </button>
               </div>
             </motion.div>

@@ -884,14 +884,33 @@ export default function App() {
   }, [db]);
 
   useEffect(() => {
-    if (user && isMobileCheckin && !selectedGuardian) {
-      const guardian = guardians.find(g => g.id === user.uid || g.email === user.email);
-      if (guardian) {
-        setSelectedGuardian(guardian);
-        setMobileStep("selection");
+    if (user && isMobileCheckin) {
+      // If user is logged in but we are on phone step or registration-guardian, 
+      // we should try to find the guardian profile and proceed
+      if (!selectedGuardian || mobileStep === "phone" || mobileStep === "registration-guardian") {
+        const guardian = guardians.find(g => g.id === user.uid || g.email === user.email);
+        if (guardian) {
+          setSelectedGuardian(guardian);
+          
+          // Check if guardian has children
+          const gid = guardian.id;
+          const hasKids = children.some(c => 
+            (gid && c.guardianIds?.includes(String(gid))) || 
+            (gid && String(c.guardianId) === String(gid))
+          );
+          
+          if (hasKids) {
+            setMobileStep("selection");
+          } else {
+            setMobileStep("registration-children");
+          }
+        } else if (mobileStep !== "registration-guardian") {
+          // If user is logged in but no guardian profile found, redirect to registration
+          setMobileStep("registration-guardian");
+        }
       }
     }
-  }, [user, isMobileCheckin, guardians, selectedGuardian]);
+  }, [user, isMobileCheckin, guardians, selectedGuardian, children, mobileStep]);
 
   useEffect(() => {
     if (user && isPublicRegistration && !registrationGuardianId) {
@@ -1054,8 +1073,12 @@ export default function App() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     // Instead of registering here with limited data, redirect to the full registration form
-    setIsPublicRegistration(true);
-    setRegistrationStep("guardian");
+    if (isMobileCheckin) {
+      setMobileStep("registration-guardian");
+    } else {
+      setIsPublicRegistration(true);
+      setRegistrationStep("guardian");
+    }
     setIsRegistering(false);
     addNotification("info", "Redirecionando para o formulário completo de cadastro familiar...");
   };
@@ -1128,8 +1151,12 @@ export default function App() {
         message = `O provedor de E-mail/Senha não está ativado no Firebase Console para o projeto '${firebaseConfig.projectId}'. Por favor, ative-o em Authentication > Sign-in method.`;
       } else if (error.code === "auth/user-not-found") {
         addNotification("warning", "E-mail não encontrado. Redirecionando para o cadastro...");
-        setIsPublicRegistration(true);
-        setRegistrationStep("guardian");
+        if (isMobileCheckin) {
+          setMobileStep("registration-guardian");
+        } else {
+          setIsPublicRegistration(true);
+          setRegistrationStep("guardian");
+        }
         return;
       } else if (error.code === "auth/invalid-email") {
         message = "E-mail inválido.";
@@ -1598,53 +1625,54 @@ export default function App() {
       const fetchFromFirestore = async () => {
         if (!db || !isFirebaseEnabled || !auth.currentUser) return null;
         try {
-          // Only fetch if has basic junior role or is master
-          // Also allow if it's the admin email (to handle initial login state)
+          // Only fetch financial data if has basic junior role or is master
           const isAdminEmail = auth.currentUser.email === "admin@modeloalpha.com.br";
-          if (userRole !== "master" && userRole !== "junior" && !isAdminEmail) {
-            console.warn("User does not have permission to fetch entries from Firestore.");
-            return null;
-          }
+          const hasAdminRole = userRole === "master" || userRole === "junior" || isAdminEmail;
+          
+          let entriesData: Entry[] = [];
+          let attendanceData: Attendance[] = [];
+          let locationsData: Location[] = [];
 
-          const querySnapshot = await getDocs(collection(db, "entries"));
-          const querySnapshotAtt = await getDocs(collection(db, "attendance"));
-          const querySnapshotLoc = await getDocs(collection(db, "locations"));
+          if (hasAdminRole) {
+            const querySnapshot = await getDocs(collection(db, "entries"));
+            const querySnapshotAtt = await getDocs(collection(db, "attendance"));
+            const querySnapshotLoc = await getDocs(collection(db, "locations"));
+
+            entriesData = querySnapshot.empty ? [] : querySnapshot.docs.map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            })) as Entry[];
+            entriesData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+            attendanceData = querySnapshotAtt.empty ? [] : querySnapshotAtt.docs.map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            })) as Attendance[];
+            attendanceData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+            locationsData = querySnapshotLoc.empty ? [] : querySnapshotLoc.docs.map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            })) as Location[];
+            locationsData.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+          }
 
           setFirebaseStatus("online");
           
-          const entriesData = querySnapshot.empty ? [] : querySnapshot.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data() 
-          })) as Entry[];
-          entriesData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-
-          const attendanceData = querySnapshotAtt.empty ? [] : querySnapshotAtt.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data() 
-          })) as Attendance[];
-          attendanceData.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-
-          const locationsData = querySnapshotLoc.empty ? [] : querySnapshotLoc.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data() 
-          })) as Location[];
-          locationsData.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
-
-          // If locations are empty, seed a default location in Firestore
-          let finalLocations = locationsData;
-          if (locationsData.length === 0) {
+          // If locations are empty and user is admin, seed a default location
+          if (hasAdminRole && locationsData.length === 0) {
             console.log("Seeding default location to Firestore...");
             const defaultLoc = { name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() };
             try {
               const docRef = await addDoc(collection(db, "locations"), defaultLoc);
-              finalLocations = [{ id: docRef.id, ...defaultLoc }];
+              locationsData = [{ id: docRef.id, ...defaultLoc }];
             } catch (err) {
               handleFirestoreError(err, OperationType.WRITE, "locations");
-              finalLocations = [{ id: 'temp-default', ...defaultLoc }];
+              locationsData = [{ id: 'temp-default', ...defaultLoc }];
             }
           }
 
-          return { entriesData, attendanceData, locationsData: finalLocations };
+          return { entriesData, attendanceData, locationsData };
         } catch (e: any) {
           setFirebaseStatus("error");
           handleFirestoreError(e, OperationType.LIST, "entries, attendance, locations");
@@ -1675,24 +1703,62 @@ export default function App() {
           const uniqueLocations = Array.from(new Map(result.locationsData.map((l: Location) => [l.id, l])).values()) as Location[];
           setLocations(uniqueLocations);
 
-          // Fetch Kids Data
-          const querySnapshotGuardians = await getDocs(collection(db, "guardians"));
-          const guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
-          const uniqueGuardians = Array.from(new Map(guardiansData.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[];
-          setGuardians(uniqueGuardians);
+          // Fetch Kids Data from Firestore (accessible to parents too)
+          if (db && isFirebaseEnabled && auth.currentUser) {
+            const isAdminEmail = auth.currentUser.email === "admin@modeloalpha.com.br";
+            const hasAdminRole = userRole === "master" || userRole === "junior" || isAdminEmail;
+            
+            let guardiansData: Guardian[] = [];
+            let childrenData: Child[] = [];
+            let checkinsData: KidsCheckIn[] = [];
+            let roomsData: Room[] = [];
 
-          const querySnapshotChildren = await getDocs(collection(db, "children"));
-          const childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
-          const uniqueChildren = Array.from(new Map(childrenData.map((c: Child) => [String(c.id), c])).values()) as Child[];
-          setChildren(uniqueChildren);
+            try {
+              if (hasAdminRole) {
+                const querySnapshotGuardians = await getDocs(collection(db, "guardians"));
+                guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
+                
+                const querySnapshotChildren = await getDocs(collection(db, "children"));
+                childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
 
-          const querySnapshotKidsCheckIns = await getDocs(collection(db, "kids_checkins"));
-          const kidsCheckInsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
-          setKidsCheckIns(kidsCheckInsData);
+                const querySnapshotKidsCheckIns = await getDocs(collection(db, "kids_checkins"));
+                checkinsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+              } else {
+                // Regular user: only fetch their own data
+                const guardianDoc = await getDoc(doc(db, "guardians", auth.currentUser.uid));
+                if (guardianDoc.exists()) {
+                  guardiansData = [{ id: guardianDoc.id, ...guardianDoc.data() } as Guardian];
+                }
+                
+                const qChildren = query(collection(db, "children"), where("guardianId", "==", auth.currentUser.uid));
+                const querySnapshotChildren = await getDocs(qChildren);
+                childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                
+                // Also check for guardianIds array
+                const qChildren2 = query(collection(db, "children"), where("guardianIds", "array-contains", auth.currentUser.uid));
+                const querySnapshotChildren2 = await getDocs(qChildren2);
+                const childrenData2 = querySnapshotChildren2.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                
+                // Merge and unique
+                childrenData = Array.from(new Map([...childrenData, ...childrenData2].map(c => [c.id, c])).values());
 
-          const querySnapshotRooms = await getDocs(collection(db, "rooms"));
-          const roomsData = querySnapshotRooms.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
-          setRooms(roomsData);
+                const qCheckins = query(collection(db, "kids_checkins"), where("guardianId", "==", auth.currentUser.uid));
+                const querySnapshotCheckins = await getDocs(qCheckins);
+                checkinsData = querySnapshotCheckins.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+              }
+
+              // Rooms are public
+              const querySnapshotRooms = await getDocs(collection(db, "rooms"));
+              roomsData = querySnapshotRooms.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
+
+              setGuardians(Array.from(new Map(guardiansData.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[]);
+              setChildren(Array.from(new Map(childrenData.map((c: Child) => [String(c.id), c])).values()) as Child[]);
+              setKidsCheckIns(checkinsData);
+              setRooms(roomsData);
+            } catch (kidsError) {
+              console.error("Error fetching kids data from Firestore:", kidsError);
+            }
+          }
           
           setLoading(false);
           return;
@@ -4094,7 +4160,7 @@ if (isPublicRegistration) {
                     await handleAddChild({
                       name,
                       birthDate,
-                      guardianId: registrationGuardianId!,
+                      guardianId: (registrationGuardianId || user?.uid)!,
                       allergies: formData.get('allergies') as string,
                       notes: formData.get('notes') as string,
                     });
@@ -5007,7 +5073,7 @@ if (isMobileCheckin) {
                       await handleAddChild({
                         name: formData.get('name') as string,
                         birthDate: formData.get('birthDate') as string,
-                        guardianId: selectedGuardian.id,
+                        guardianId: (selectedGuardian?.id || user?.uid)!,
                         allergies: formData.get('allergies') as string,
                         notes: formData.get('notes') as string,
                       });
@@ -5056,7 +5122,7 @@ if (isMobileCheckin) {
                               const result = await handleAddChild({
                                 name,
                                 birthDate,
-                                guardianId: selectedGuardian.id,
+                                guardianId: (selectedGuardian?.id || user?.uid)!,
                                 allergies: formData.get('allergies') as string,
                                 notes: formData.get('notes') as string,
                               });
@@ -5126,7 +5192,11 @@ if (isMobileCheckin) {
                   </div>
                   <div className="space-y-3">
                     {children
-                      .filter(c => c.guardianId === selectedGuardian.id)
+                      .filter(c => {
+                        const currentGid = selectedGuardian?.id || user?.uid;
+                        return (currentGid && c.guardianIds?.includes(String(currentGid))) || 
+                               (currentGid && String(c.guardianId) === String(currentGid));
+                      })
                       .map(child => (
                         <button
                           key={child.id}

@@ -740,6 +740,12 @@ export default function App() {
   const [registrationGuardianId, setRegistrationGuardianId] = useState<string | null>(null);
   const [registrationGuardianData, setRegistrationGuardianData] = useState<{ name: string; email: string; phone: string } | null>(null);
 
+  useEffect(() => {
+    if (user && !registrationGuardianId && isPublicRegistration) {
+      setRegistrationGuardianId(user.uid);
+    }
+  }, [user, registrationGuardianId, isPublicRegistration]);
+
   // Consolidate user fetching into a single effect that depends on the authenticated user and their profile
   useEffect(() => {
     // Only attempt to fetch from Firestore if we have a real Firebase user (not a demo user)
@@ -4031,7 +4037,10 @@ if (isPublicRegistration) {
                 </div>
                 
                 <div className="space-y-4">
-                  {children.filter(c => c.guardianIds?.includes(registrationGuardianId!) || c.guardianId === registrationGuardianId).map(child => (
+                  {children.filter(c => 
+                    (registrationGuardianId && c.guardianIds?.includes(String(registrationGuardianId))) || 
+                    (registrationGuardianId && String(c.guardianId) === String(registrationGuardianId))
+                  ).map(child => (
                     <motion.div 
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4057,9 +4066,14 @@ if (isPublicRegistration) {
                 <form onSubmit={async (e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
+                  const name = formData.get('name') as string;
+                  const birthDate = formData.get('birthDate') as string;
+                  
+                  if (!name || !birthDate) return;
+
                   await handleAddChild({
-                    name: formData.get('name') as string,
-                    birthDate: formData.get('birthDate') as string,
+                    name,
+                    birthDate,
                     guardianId: registrationGuardianId!,
                     allergies: formData.get('allergies') as string,
                     notes: formData.get('notes') as string,
@@ -4084,20 +4098,37 @@ if (isPublicRegistration) {
                     <textarea name="allergies" rows={2} className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 transition-all resize-none" placeholder="Ex: Alergia a amendoim, intolerância a lactose..." />
                   </div>
                   
-                  <div className="flex flex-col gap-3 pt-2">
-                    <button type="submit" disabled={submitting} className="w-full py-4 bg-white border-2 border-indigo-600 text-indigo-600 rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-5 h-5" /> Adicionar Criança</>}
+                  <div className="flex flex-col gap-4 pt-6">
+                    <button type="submit" disabled={submitting} className="w-full py-4 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2">
+                      {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-5 h-5" /> Salvar e Adicionar Outro</>}
                     </button>
                     
-                    {children.filter(c => c.guardianIds?.includes(registrationGuardianId!) || c.guardianId === registrationGuardianId).length > 0 && (
-                      <button 
-                        type="button"
-                        onClick={() => setRegistrationStep("success")}
-                        className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
-                      >
-                        Finalizar Cadastro <ArrowRight className="w-5 h-5" />
-                      </button>
-                    )}
+                    <div className="relative py-2">
+                      <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                        <div className="w-full border-t border-slate-100"></div>
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase tracking-widest font-bold">
+                        <span className="bg-white px-4 text-slate-300">Ou</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const hasChildren = children.some(c => 
+                          (registrationGuardianId && c.guardianIds?.includes(String(registrationGuardianId))) || 
+                          (registrationGuardianId && String(c.guardianId) === String(registrationGuardianId))
+                        );
+                        if (!hasChildren) {
+                          addNotification("info", "Adicione pelo menos uma criança para finalizar.");
+                          return;
+                        }
+                        setRegistrationStep("success");
+                      }}
+                      className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-slate-200"
+                    >
+                      Finalizar e Ir para o App <ArrowRight className="w-6 h-6" />
+                    </button>
                   </div>
                 </form>
 
@@ -4883,7 +4914,10 @@ if (isMobileCheckin) {
                 </div>
                 
                 <div className="space-y-3">
-                  {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
+                  {children.filter(c => 
+                    (selectedGuardian && c.guardianIds?.includes(String(selectedGuardian.id))) || 
+                    (selectedGuardian && String(c.guardianId) === String(selectedGuardian.id))
+                  ).map(child => (
                     <div key={child.id} className="p-4 bg-white rounded-3xl border border-slate-200 flex items-center justify-between shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
@@ -4935,18 +4969,40 @@ if (isMobileCheckin) {
                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
                       <input name="allergies" placeholder="Ex: Alergia a amendoim, lactose..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-all text-sm font-medium" />
                     </div>
-                    <button type="submit" disabled={submitting} className="w-full py-4 bg-white border-2 border-indigo-600 text-indigo-600 rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                      {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-4 h-4" /> Adicionar Criança</>}
-                    </button>
+                    <div className="flex flex-col gap-4 pt-4">
+                      <button type="submit" disabled={submitting} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2">
+                        {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-4 h-4" /> Salvar e Adicionar Outro</>}
+                      </button>
+
+                      <div className="relative py-2">
+                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                          <div className="w-full border-t border-slate-100"></div>
+                        </div>
+                        <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold">
+                          <span className="bg-white px-4 text-slate-300">Ou</span>
+                        </div>
+                      </div>
+
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const hasChildren = children.some(c => 
+                            (selectedGuardian && c.guardianIds?.includes(String(selectedGuardian.id))) || 
+                            (selectedGuardian && String(c.guardianId) === String(selectedGuardian.id))
+                          );
+                          if (!hasChildren) {
+                            addNotification("info", "Adicione pelo menos uma criança para finalizar.");
+                            return;
+                          }
+                          setMobileStep("selection");
+                        }}
+                        className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-3"
+                      >
+                        Finalizar e Ir para Check-in <ArrowRight className="w-5 h-5" />
+                      </button>
+                    </div>
                   </form>
                 </div>
-
-                <button 
-                  onClick={() => setMobileStep("selection")}
-                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200"
-                >
-                  Finalizar e Ir para Check-in
-                </button>
               </div>
             )}
 

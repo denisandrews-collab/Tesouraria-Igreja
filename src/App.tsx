@@ -893,6 +893,15 @@ export default function App() {
     }
   }, [user, isMobileCheckin, guardians, selectedGuardian]);
 
+  useEffect(() => {
+    if (user && isPublicRegistration && !registrationGuardianId) {
+      setRegistrationGuardianId(user.uid);
+      if (registrationStep === "guardian") {
+        setRegistrationStep("children");
+      }
+    }
+  }, [user, isPublicRegistration, registrationGuardianId, registrationStep]);
+
   const hasPermission = (tabId: string) => {
     if (!userProfile) return false;
     if (userProfile.role === "master") return true;
@@ -2224,12 +2233,12 @@ export default function App() {
           } else {
             await addDoc(collection(db, "children"), newChild);
           }
-          fetchEntries();
+          await fetchEntries();
           setShowAddChildModal(false);
           setChildAlreadyExists(null);
           setShowKinshipInput(false);
           addNotification("success", existingChild ? "Vínculo com a criança atualizado." : "Criança adicionada com sucesso.");
-          return id;
+          return newChild;
         } catch (fsError) {
           console.error("Firestore addChild failed, falling back to API:", fsError);
         }
@@ -2245,12 +2254,12 @@ export default function App() {
       });
 
       if (response.ok) {
-        fetchEntries();
+        await fetchEntries();
         setShowAddChildModal(false);
         setChildAlreadyExists(null);
         setShowKinshipInput(false);
         addNotification("success", existingChild ? "Vínculo com a criança atualizado." : "Criança adicionada com sucesso.");
-        return id;
+        return newChild;
       }
     } catch (error) {
       console.error("Error adding child:", error);
@@ -4045,10 +4054,11 @@ if (isPublicRegistration) {
                 </div>
                 
                 <div className="space-y-4">
-                  {children.filter(c => 
-                    (registrationGuardianId && c.guardianIds?.includes(String(registrationGuardianId))) || 
-                    (registrationGuardianId && String(c.guardianId) === String(registrationGuardianId))
-                  ).map(child => (
+                  {children.filter(c => {
+                    const gid = registrationGuardianId || user?.uid;
+                    return (gid && c.guardianIds?.includes(String(gid))) || 
+                           (gid && String(c.guardianId) === String(gid));
+                  }).map(child => (
                     <motion.div 
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4125,6 +4135,7 @@ if (isPublicRegistration) {
                     <button 
                       type="button"
                       onClick={async () => {
+                        let childAdded = false;
                         // Check if there's data in the form that hasn't been saved yet
                         if (registrationFormRef.current) {
                           const formData = new FormData(registrationFormRef.current);
@@ -4133,21 +4144,26 @@ if (isPublicRegistration) {
                           
                           if (name && birthDate) {
                             // Automatically save the child if the form is filled
-                            await handleAddChild({
+                            const currentGid = registrationGuardianId || user?.uid;
+                            const result = await handleAddChild({
                               name,
                               birthDate,
-                              guardianId: registrationGuardianId!,
+                              guardianId: currentGid!,
                               allergies: formData.get('allergies') as string,
                               notes: formData.get('notes') as string,
                             });
-                            registrationFormRef.current.reset();
+                            if (result) {
+                              childAdded = true;
+                              registrationFormRef.current.reset();
+                            }
                           }
                         }
 
                         // Now check if we have at least one child saved
-                        const hasChildren = children.some(c => 
-                          (registrationGuardianId && c.guardianIds?.includes(String(registrationGuardianId))) || 
-                          (registrationGuardianId && String(c.guardianId) === String(registrationGuardianId))
+                        const currentGid = registrationGuardianId || user?.uid;
+                        const hasChildren = childAdded || children.some(c => 
+                          (currentGid && c.guardianIds?.includes(String(currentGid))) || 
+                          (currentGid && String(c.guardianId) === String(currentGid))
                         );
                         
                         if (!hasChildren) {
@@ -4193,14 +4209,18 @@ if (isPublicRegistration) {
                         <button 
                           onClick={async () => {
                             const kinship = (document.getElementById('kinship-select-public') as HTMLSelectElement).value;
-                            await handleAddChild({
+                            const currentGid = registrationGuardianId || user?.uid;
+                            const result = await handleAddChild({
                               name: childAlreadyExists.name,
                               birthDate: childAlreadyExists.birthDate,
-                              guardianId: registrationGuardianId!,
+                              guardianId: currentGid!,
                               allergies: childAlreadyExists.allergies || "",
                               notes: childAlreadyExists.notes || "",
                               kinship
                             });
+                            if (result && isPublicRegistration) {
+                              setRegistrationStep("success");
+                            }
                           }}
                           className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
                         >
@@ -4898,14 +4918,18 @@ if (isMobileCheckin) {
                         <button 
                           onClick={async () => {
                             const kinship = (document.getElementById('kinship-select') as HTMLSelectElement).value;
-                            await handleAddChild({
+                            const currentGid = selectedGuardian?.id || user?.uid;
+                            const result = await handleAddChild({
                               name: childAlreadyExists.name,
                               birthDate: childAlreadyExists.birthDate,
-                              guardianId: selectedGuardian.id,
+                              guardianId: currentGid!,
                               allergies: childAlreadyExists.allergies || "",
                               notes: childAlreadyExists.notes || "",
                               kinship
                             });
+                            if (result && isMobileCheckin) {
+                              setMobileStep("selection");
+                            }
                           }}
                           className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
                         >
@@ -4945,10 +4969,11 @@ if (isMobileCheckin) {
                 </div>
                 
                 <div className="space-y-3">
-                  {children.filter(c => 
-                    (selectedGuardian && c.guardianIds?.includes(String(selectedGuardian.id))) || 
-                    (selectedGuardian && String(c.guardianId) === String(selectedGuardian.id))
-                  ).map(child => (
+                  {children.filter(c => {
+                    const gid = selectedGuardian?.id || user?.uid;
+                    return (gid && c.guardianIds?.includes(String(gid))) || 
+                           (gid && String(c.guardianId) === String(gid));
+                  }).map(child => (
                     <div key={child.id} className="p-4 bg-white rounded-3xl border border-slate-200 flex items-center justify-between shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
@@ -5019,6 +5044,7 @@ if (isMobileCheckin) {
                       <button 
                         type="button"
                         onClick={async () => {
+                          let childAdded = false;
                           // Check if there's data in the form that hasn't been saved yet
                           if (mobileRegistrationFormRef.current) {
                             const formData = new FormData(mobileRegistrationFormRef.current);
@@ -5027,21 +5053,23 @@ if (isMobileCheckin) {
                             
                             if (name && birthDate) {
                               // Automatically save the child if the form is filled
-                              await handleAddChild({
+                              const result = await handleAddChild({
                                 name,
                                 birthDate,
                                 guardianId: selectedGuardian.id,
                                 allergies: formData.get('allergies') as string,
                                 notes: formData.get('notes') as string,
                               });
+                              if (result) childAdded = true;
                               mobileRegistrationFormRef.current.reset();
                             }
                           }
 
                           // Now check if we have at least one child saved
-                          const hasChildren = children.some(c => 
-                            (selectedGuardian && c.guardianIds?.includes(String(selectedGuardian.id))) || 
-                            (selectedGuardian && String(c.guardianId) === String(selectedGuardian.id))
+                          const currentGid = selectedGuardian?.id || user?.uid;
+                          const hasChildren = childAdded || children.some(c => 
+                            (currentGid && c.guardianIds?.includes(String(currentGid))) || 
+                            (currentGid && String(c.guardianId) === String(currentGid))
                           );
                           
                           if (!hasChildren) {

@@ -1661,11 +1661,13 @@ export default function App() {
           // Fetch Kids Data
           const querySnapshotGuardians = await getDocs(collection(db, "guardians"));
           const guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
-          setGuardians(guardiansData);
+          const uniqueGuardians = Array.from(new Map(guardiansData.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[];
+          setGuardians(uniqueGuardians);
 
           const querySnapshotChildren = await getDocs(collection(db, "children"));
           const childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
-          setChildren(childrenData);
+          const uniqueChildren = Array.from(new Map(childrenData.map((c: Child) => [String(c.id), c])).values()) as Child[];
+          setChildren(uniqueChildren);
 
           const querySnapshotKidsCheckIns = await getDocs(collection(db, "kids_checkins"));
           const kidsCheckInsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
@@ -1741,7 +1743,8 @@ export default function App() {
             isTeacher: g.isTeacher === 1,
             assignedRoomIds: typeof g.assignedRoomIds === 'string' ? JSON.parse(g.assignedRoomIds) : (g.assignedRoomIds || [])
           }));
-          setGuardians(parsedGuardians);
+          const uniqueGuardians = Array.from(new Map(parsedGuardians.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[];
+          setGuardians(uniqueGuardians);
         }
       }
 
@@ -2327,33 +2330,57 @@ export default function App() {
   const handleDeleteGuardian = async (id: string) => {
     try {
       setSubmitting(true);
+      
+      // Store current state for rollback if needed
+      const previousGuardians = [...guardians];
+      
+      // Optimistic update: remove from local state immediately
+      setGuardians(prev => prev.filter(g => String(g.id) !== String(id)));
+
+      let firestoreSuccess = false;
+      let apiSuccess = false;
+
+      // 1. Try Firestore Deletion
       if (db && isFirebaseEnabled) {
         try {
-          await deleteDoc(doc(db, "guardians", id));
-          // If the guardian has a user account, we should ideally delete it too, 
-          // but we can't easily delete Auth users from client side without admin SDK.
-          // At least remove the user profile if it exists.
-          await deleteDoc(doc(db, "users", id));
-          
-          await fetchEntries();
-          setShowDeleteGuardianConfirm(null);
-          addNotification("success", "Responsável excluído com sucesso.");
-          return;
+          // Delete from both guardians and users collections
+          await Promise.all([
+            deleteDoc(doc(db, "guardians", id)),
+            deleteDoc(doc(db, "users", id))
+          ]);
+          firestoreSuccess = true;
+          console.log("Guardian deleted from Firestore:", id);
         } catch (fsError) {
-          console.error("Firestore deleteGuardian failed, falling back to API:", fsError);
+          console.error("Firestore deleteGuardian failed:", fsError);
         }
       }
 
-      const response = await fetch(`/api/guardians/${id}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
+      // 2. Try API Deletion (Always try if possible to keep in sync)
+      try {
+        const response = await fetch(`/api/guardians/${id}`, {
+          method: "DELETE",
+        });
+        if (response.ok) {
+          apiSuccess = true;
+          console.log("Guardian deleted from API:", id);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: "Erro na API" }));
+          console.warn("API deleteGuardian returned non-ok status:", errorData);
+        }
+      } catch (apiError) {
+        console.error("API deleteGuardian failed:", apiError);
+      }
+
+      // 3. Finalize
+      if (firestoreSuccess || apiSuccess) {
+        // Refresh all data to ensure consistency
         await fetchEntries();
         setShowDeleteGuardianConfirm(null);
         addNotification("success", "Responsável excluído com sucesso.");
       } else {
-        const errorData = await response.json().catch(() => ({ error: "Erro desconhecido" }));
-        addNotification("error", `Erro ao excluir responsável: ${errorData.error || response.statusText}`);
+        // If both failed, rollback optimistic update
+        setGuardians(previousGuardians);
+        addNotification("error", "Erro ao excluir responsável. Tente novamente.");
       }
     } catch (error) {
       console.error("Error deleting guardian:", error);

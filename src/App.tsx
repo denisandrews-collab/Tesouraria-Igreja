@@ -4548,17 +4548,19 @@ if (isMobileCheckin) {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
                   const email = formData.get('email') as string;
+                  const cpf = formData.get('cpf') as string;
                   const password = formData.get('password') as string;
                   const name = formData.get('name') as string;
                   const phone = formData.get('phone') as string;
 
-                  if (!password || !name || !phone) {
+                  if ((!user && !password) || !name || !phone || !cpf) {
                     addNotification("warning", "Por favor, preencha todos os campos obrigatórios.");
                     return;
                   }
 
                   const guardianId = await handleAddGuardian({
                     name,
+                    cpf,
                     phone,
                     email,
                     password
@@ -4612,6 +4614,18 @@ if (isMobileCheckin) {
                       </div>
                     </div>
                     <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF do Responsável</label>
+                      <div className="relative">
+                        <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          name="cpf" 
+                          required 
+                          placeholder="000.000.000-00"
+                          className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone (WhatsApp)</label>
                       <div className="relative">
                         <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -4625,13 +4639,12 @@ if (isMobileCheckin) {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
                       <div className="relative">
                         <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input 
                           name="email" 
                           type="email" 
-                          required
                           defaultValue={user?.email || ""}
                           placeholder="seu@email.com"
                           className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 

@@ -2010,6 +2010,30 @@ export default function App() {
     }
   };
 
+  const deleteChild = async (id: string) => {
+    if (userRole !== "master") return;
+    try {
+      await deleteDoc(doc(db, "children", id));
+      addNotification("success", "Criança excluída com sucesso!");
+      fetchEntries();
+    } catch (error) {
+      console.error("Error deleting child:", error);
+      addNotification("error", "Erro ao excluir criança.");
+    }
+  };
+
+  const deleteRoom = async (id: string) => {
+    if (userRole !== "master") return;
+    try {
+      await deleteDoc(doc(db, "rooms", id));
+      addNotification("success", "Sala excluída com sucesso!");
+      fetchEntries();
+    } catch (error) {
+      console.error("Error deleting room:", error);
+      addNotification("error", "Erro ao excluir sala.");
+    }
+  };
+
   const addLocation = async () => {
     if (!newLocationName.trim()) return;
     try {
@@ -7793,15 +7817,27 @@ if (!user) {
                     {children.map(child => (
                       <div key={child.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group relative">
                         {userRole === "master" && (
-                          <button
-                            onClick={() => {
-                              setEditingChild(child);
-                              setShowEditChildModal(true);
-                            }}
-                            className="absolute top-4 right-4 p-2 bg-slate-50 text-slate-400 rounded-xl opacity-0 group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                            <button
+                              onClick={() => {
+                                setEditingChild(child);
+                                setShowEditChildModal(true);
+                              }}
+                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Tem certeza que deseja excluir ${child.name}?`)) {
+                                  deleteChild(child.id);
+                                }
+                              }}
+                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
@@ -7919,7 +7955,30 @@ if (!user) {
                     {rooms.map(room => {
                       const childrenInRoom = kidsCheckIns.filter(ci => ci.room === room.name && ci.status === 'checked-in').length;
                       return (
-                        <div key={room.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                        <div key={room.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group relative">
+                          {userRole === "master" && (
+                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                              <button
+                                onClick={() => {
+                                  setEditingRoom(room);
+                                  setShowEditRoomModal(true);
+                                }}
+                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Tem certeza que deseja excluir a sala ${room.name}?`)) {
+                                    deleteRoom(room.id);
+                                  }
+                                }}
+                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
@@ -8385,7 +8444,11 @@ if (!user) {
                                   
                                   {u.uid !== user?.uid && u.email !== "admin@modeloalpha.com.br" && (
                                     <button
-                                      onClick={() => deleteUser(u.uid)}
+                                      onClick={() => {
+                                        if (window.confirm(`Tem certeza que deseja remover o acesso de ${u.name || u.email}?`)) {
+                                          deleteUser(u.uid);
+                                        }
+                                      }}
                                       className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
                                       title="Remover Acesso"
                                     >

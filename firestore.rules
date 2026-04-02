@@ -182,7 +182,7 @@ service cloud.firestore {
         (isAdmin() && (request.resource.data.role != 'master' || request.auth.token.email == "admin@modeloalpha.com.br")) || 
         (isOwner(userId) && request.resource.data.role == resource.data.role)
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isOwner(userId);
     }
 
     match /entries/{entryId} {
@@ -210,7 +210,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (request.auth.uid == guardianId || hasPermission('kids'));
       allow create: if isAuthenticated() && (request.auth.uid == guardianId || hasPermission('kids')) && isValidGuardian(request.resource.data);
       allow update: if isAuthenticated() && (request.auth.uid == guardianId || hasPermission('kids')) && isValidGuardian(request.resource.data);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isOwner(guardianId);
     }
 
     match /children/{childId} {

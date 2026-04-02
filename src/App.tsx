@@ -95,7 +95,9 @@ import {
   Timestamp,
   onSnapshot,
   getDoc,
-  setDoc
+  setDoc,
+  getDocsFromServer,
+  getDocFromServer
 } from "firebase/firestore";
 import { 
   onAuthStateChanged, 
@@ -1659,9 +1661,9 @@ export default function App() {
           let locationsData: Location[] = [];
 
           if (hasAdminRole) {
-            const querySnapshot = await getDocs(collection(db, "entries"));
-            const querySnapshotAtt = await getDocs(collection(db, "attendance"));
-            const querySnapshotLoc = await getDocs(collection(db, "locations"));
+            const querySnapshot = await getDocsFromServer(collection(db, "entries"));
+            const querySnapshotAtt = await getDocsFromServer(collection(db, "attendance"));
+            const querySnapshotLoc = await getDocsFromServer(collection(db, "locations"));
 
             entriesData = querySnapshot.empty ? [] : querySnapshot.docs.map(doc => ({ 
               id: doc.id, 
@@ -1740,40 +1742,40 @@ export default function App() {
 
             try {
               if (hasAdminRole) {
-                const querySnapshotGuardians = await getDocs(collection(db, "guardians"));
+                const querySnapshotGuardians = await getDocsFromServer(collection(db, "guardians"));
                 guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
                 
-                const querySnapshotChildren = await getDocs(collection(db, "children"));
+                const querySnapshotChildren = await getDocsFromServer(collection(db, "children"));
                 childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
 
-                const querySnapshotKidsCheckIns = await getDocs(collection(db, "kids_checkins"));
+                const querySnapshotKidsCheckIns = await getDocsFromServer(collection(db, "kids_checkins"));
                 checkinsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
               } else {
                 // Regular user: only fetch their own data
-                const guardianDoc = await getDoc(doc(db, "guardians", auth.currentUser.uid));
+                const guardianDoc = await getDocFromServer(doc(db, "guardians", auth.currentUser.uid));
                 if (guardianDoc.exists()) {
                   guardiansData = [{ id: guardianDoc.id, ...guardianDoc.data() } as Guardian];
                 }
                 
                 const qChildren = query(collection(db, "children"), where("guardianId", "==", auth.currentUser.uid));
-                const querySnapshotChildren = await getDocs(qChildren);
+                const querySnapshotChildren = await getDocsFromServer(qChildren);
                 childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
                 
                 // Also check for guardianIds array
                 const qChildren2 = query(collection(db, "children"), where("guardianIds", "array-contains", auth.currentUser.uid));
-                const querySnapshotChildren2 = await getDocs(qChildren2);
+                const querySnapshotChildren2 = await getDocsFromServer(qChildren2);
                 const childrenData2 = querySnapshotChildren2.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
                 
                 // Merge and unique
                 childrenData = Array.from(new Map([...childrenData, ...childrenData2].map(c => [c.id, c])).values());
 
                 const qCheckins = query(collection(db, "kids_checkins"), where("guardianId", "==", auth.currentUser.uid));
-                const querySnapshotCheckins = await getDocs(qCheckins);
+                const querySnapshotCheckins = await getDocsFromServer(qCheckins);
                 checkinsData = querySnapshotCheckins.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
               }
 
               // Rooms are public
-              const querySnapshotRooms = await getDocs(collection(db, "rooms"));
+              const querySnapshotRooms = await getDocsFromServer(collection(db, "rooms"));
               roomsData = querySnapshotRooms.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
 
               setGuardians(Array.from(new Map(guardiansData.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[]);
@@ -2021,32 +2023,48 @@ export default function App() {
   };
 
   const deleteUser = async (uid: string) => {
-    if (userRole !== "master") return;
+    if (userRole !== "master" && auth.currentUser?.email !== "admin@modeloalpha.com.br") {
+      addNotification("error", "Apenas administradores master podem excluir usuários.");
+      return;
+    }
     if (uid === user?.uid) {
       addNotification("warning", "Você não pode se auto-excluir.");
       return;
     }
     try {
+      setSubmitting(true);
+      
+      // Optimistic update
+      setAllUsers(prev => prev.filter(u => u.uid !== uid));
+
       // Delete from Firestore
-      await Promise.all([
-        deleteDoc(doc(db, "users", uid)),
-        deleteDoc(doc(db, "guardians", uid))
-      ]);
+      if (db && isFirebaseEnabled) {
+        try {
+          await Promise.all([
+            deleteDoc(doc(db, "users", uid)),
+            deleteDoc(doc(db, "guardians", uid))
+          ]);
+        } catch (fsError) {
+          console.error("Firestore delete user failed:", fsError);
+          // We continue to API but we'll refetch later
+        }
+      }
 
       // Delete from API (SQLite)
       try {
         await fetch(`/api/guardians/${uid}`, { method: "DELETE" });
       } catch (apiError) {
-        console.warn("API delete user failed, but Firestore succeeded:", apiError);
+        console.warn("API delete user failed:", apiError);
       }
 
       addNotification("success", "Usuário removido com sucesso!");
-      // Update local state
-      setGuardians(prev => prev.filter(g => g.id !== uid));
-      fetchEntries();
+      await fetchEntries();
     } catch (error) {
       console.error("Error deleting user:", error);
       addNotification("error", "Erro ao remover usuário.");
+      await fetchEntries();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -2061,8 +2079,20 @@ export default function App() {
     }
 
     try {
-      await deleteDoc(doc(db, "children", id));
+      setSubmitting(true);
       
+      // Optimistic update
+      setChildren(prev => prev.filter(c => c.id !== id));
+
+      if (db && isFirebaseEnabled) {
+        try {
+          await deleteDoc(doc(db, "children", id));
+        } catch (fsError) {
+          console.error("Firestore delete child failed:", fsError);
+          throw fsError;
+        }
+      }
+
       // Delete from API (SQLite)
       try {
         await fetch(`/api/children/${id}`, { method: "DELETE" });
@@ -2071,19 +2101,35 @@ export default function App() {
       }
 
       addNotification("success", "Criança excluída com sucesso!");
-      // Update local state optimistically or fetch
-      setChildren(prev => prev.filter(c => c.id !== id));
-      fetchEntries();
+      await fetchEntries();
     } catch (error) {
       console.error("Error deleting child:", error);
       addNotification("error", "Erro ao excluir criança.");
+      await fetchEntries();
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const deleteRoom = async (id: string) => {
-    if (userRole !== "master") return;
+    if (userRole !== "master") {
+      addNotification("error", "Apenas administradores podem excluir salas.");
+      return;
+    }
     try {
-      await deleteDoc(doc(db, "rooms", id));
+      setSubmitting(true);
+      
+      // Optimistic update
+      setRooms(prev => prev.filter(r => r.id !== id));
+
+      if (db && isFirebaseEnabled) {
+        try {
+          await deleteDoc(doc(db, "rooms", id));
+        } catch (fsError) {
+          console.error("Firestore delete room failed:", fsError);
+          throw fsError;
+        }
+      }
 
       // Delete from API (SQLite)
       try {
@@ -2093,10 +2139,13 @@ export default function App() {
       }
 
       addNotification("success", "Sala excluída com sucesso!");
-      fetchEntries();
+      await fetchEntries();
     } catch (error) {
       console.error("Error deleting room:", error);
       addNotification("error", "Erro ao excluir sala.");
+      await fetchEntries();
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -2544,7 +2593,6 @@ export default function App() {
       setGuardians(prev => prev.filter(g => String(g.id) !== String(id)));
 
       let firestoreSuccess = false;
-      let apiSuccess = false;
 
       // 1. Try Firestore Deletion
       if (db && isFirebaseEnabled) {
@@ -2558,6 +2606,8 @@ export default function App() {
           console.log("Guardian deleted from Firestore:", id);
         } catch (fsError) {
           console.error("Firestore deleteGuardian failed:", fsError);
+          // If Firestore is enabled and it fails, we should probably throw to prevent "success" message
+          if (isFirebaseEnabled) throw fsError;
         }
       }
 
@@ -2566,38 +2616,30 @@ export default function App() {
         const response = await fetch(`/api/guardians/${id}`, {
           method: "DELETE",
         });
-        if (response.ok) {
-          apiSuccess = true;
-          console.log("Guardian deleted from API:", id);
-        } else {
-          const errorData = await response.json().catch(() => ({ error: "Erro na API" }));
-          console.warn("API deleteGuardian returned non-ok status:", errorData);
+        if (!response.ok && !firestoreSuccess) {
+           throw new Error("Falha ao excluir na API");
         }
       } catch (apiError) {
         console.error("API deleteGuardian failed:", apiError);
+        if (!firestoreSuccess) throw apiError;
       }
 
       // 3. Finalize
-      if (firestoreSuccess || apiSuccess) {
-        // If the user deleted themselves, log them out
-        if (user && user.uid === id) {
-          handleLogout();
-          addNotification("success", "Seu cadastro foi excluído permanentemente.");
-          return;
-        }
-
-        // Refresh all data to ensure consistency
-        await fetchEntries();
-        setShowDeleteGuardianConfirm(null);
-        addNotification("success", "Responsável excluído com sucesso.");
-      } else {
-        // If both failed, rollback optimistic update
-        setGuardians(previousGuardians);
-        addNotification("error", "Erro ao excluir responsável. Tente novamente.");
+      // If the user deleted themselves, log them out
+      if (user && user.uid === id) {
+        addNotification("success", "Seu cadastro foi excluído permanentemente.");
+        setTimeout(() => handleLogout(), 1500);
+        return;
       }
+
+      // Refresh all data to ensure consistency
+      await fetchEntries();
+      setShowDeleteGuardianConfirm(null);
+      addNotification("success", "Responsável excluído com sucesso.");
     } catch (error) {
       console.error("Error deleting guardian:", error);
-      addNotification("error", "Erro ao excluir responsável.");
+      addNotification("error", "Erro ao excluir responsável. Verifique suas permissões.");
+      await fetchEntries(); // Rollback/Refresh
     } finally {
       setSubmitting(false);
     }
@@ -10138,15 +10180,17 @@ if (!user) {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setShowDeleteGuardianConfirm(null)}
-                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  disabled={submitting}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={() => handleDeleteGuardian(showDeleteGuardianConfirm as string)}
-                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                  disabled={submitting}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Confirmar Exclusão
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
                 </button>
               </div>
             </motion.div>
@@ -10178,18 +10222,20 @@ if (!user) {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setShowDeleteChildConfirm(null)}
-                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  disabled={submitting}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => {
-                    deleteChild(showDeleteChildConfirm);
+                  onClick={async () => {
+                    await deleteChild(showDeleteChildConfirm);
                     setShowDeleteChildConfirm(null);
                   }}
-                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                  disabled={submitting}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Confirmar Exclusão
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
                 </button>
               </div>
             </motion.div>
@@ -10221,18 +10267,20 @@ if (!user) {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setShowDeleteUserConfirm(null)}
-                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  disabled={submitting}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => {
-                    deleteUser(showDeleteUserConfirm);
+                  onClick={async () => {
+                    await deleteUser(showDeleteUserConfirm);
                     setShowDeleteUserConfirm(null);
                   }}
-                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                  disabled={submitting}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Confirmar Remoção
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Remoção"}
                 </button>
               </div>
             </motion.div>
@@ -10264,18 +10312,20 @@ if (!user) {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setShowDeleteRoomConfirm(null)}
-                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  disabled={submitting}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => {
-                    deleteRoom(showDeleteRoomConfirm);
+                  onClick={async () => {
+                    await deleteRoom(showDeleteRoomConfirm);
                     setShowDeleteRoomConfirm(null);
                   }}
-                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                  disabled={submitting}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Confirmar Exclusão
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
                 </button>
               </div>
             </motion.div>

@@ -747,6 +747,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isMobileCheckin, setIsMobileCheckin] = useState(false);
   const [isPublicRegistration, setIsPublicRegistration] = useState(false);
+  const [showDeleteChildConfirm, setShowDeleteChildConfirm] = useState<string | null>(null);
+  const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState<string | null>(null);
+  const [showDeleteRoomConfirm, setShowDeleteRoomConfirm] = useState<string | null>(null);
   const [isRoomLeader, setIsRoomLeader] = useState(false);
   const [selectedRoomForLeader, setSelectedRoomForLeader] = useState<Room | null>(null);
   const [roomStatus, setRoomStatus] = useState<Record<string, "open" | "closed">>({});
@@ -2024,8 +2027,15 @@ export default function App() {
       return;
     }
     try {
-      await deleteDoc(doc(db, "users", uid));
+      // Delete from both users and guardians collections
+      await Promise.all([
+        deleteDoc(doc(db, "users", uid)),
+        deleteDoc(doc(db, "guardians", uid))
+      ]);
       addNotification("success", "Usuário removido com sucesso!");
+      // Update local state
+      setGuardians(prev => prev.filter(g => g.id !== uid));
+      fetchEntries();
     } catch (error) {
       console.error("Error deleting user:", error);
       addNotification("error", "Erro ao remover usuário.");
@@ -2033,10 +2043,20 @@ export default function App() {
   };
 
   const deleteChild = async (id: string) => {
-    if (userRole !== "master") return;
+    const childToDelete = children.find(c => c.id === id);
+    if (!childToDelete) return;
+
+    const isOwner = childToDelete.guardianIds?.includes(user?.uid || "") || childToDelete.guardianId === user?.uid;
+    if (userRole !== "master" && !isOwner) {
+      addNotification("warning", "Você não tem permissão para excluir esta criança.");
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, "children", id));
       addNotification("success", "Criança excluída com sucesso!");
+      // Update local state optimistically or fetch
+      setChildren(prev => prev.filter(c => c.id !== id));
       fetchEntries();
     } catch (error) {
       console.error("Error deleting child:", error);
@@ -7829,33 +7849,31 @@ if (!user) {
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {children.map(child => (
-                      <div key={child.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/50 rounded-bl-[3rem] -mr-8 -mt-8 transition-all group-hover:bg-indigo-100/50" />
-                        
-                        {userRole === "master" && (
-                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
-                            <button
-                              onClick={() => {
-                                setEditingChild(child);
-                                setShowEditChildModal(true);
-                              }}
-                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`Tem certeza que deseja excluir ${child.name}?`)) {
-                                  deleteChild(child.id);
-                                }
-                              }}
-                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
+                    {children.map(child => {
+                      const canEdit = userRole === "master" || child.guardianIds?.includes(user?.uid || "") || child.guardianId === user?.uid;
+                      return (
+                        <div key={child.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/50 rounded-bl-[3rem] -mr-8 -mt-8 transition-all group-hover:bg-indigo-100/50" />
+                          
+                          {canEdit && (
+                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                              <button
+                                onClick={() => {
+                                  setEditingChild(child);
+                                  setShowEditChildModal(true);
+                                }}
+                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setShowDeleteChildConfirm(child.id)}
+                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
 
                         <div className="flex items-start gap-4 relative">
                           <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-inner ${
@@ -7908,10 +7926,11 @@ if (!user) {
                           </div>
                         )}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              )}
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
               {kidsTab === 'guardians' && (
                 <section className="space-y-4">
@@ -8034,11 +8053,7 @@ if (!user) {
                                 <Edit className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (window.confirm(`Tem certeza que deseja excluir a sala ${room.name}?`)) {
-                                    deleteRoom(room.id);
-                                  }
-                                }}
+                                onClick={() => setShowDeleteRoomConfirm(room.id)}
                                 className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -8524,11 +8539,7 @@ if (!user) {
                                   
                                   {u.uid !== user?.uid && u.email !== "admin@modeloalpha.com.br" && (
                                     <button
-                                      onClick={() => {
-                                        if (window.confirm(`Tem certeza que deseja remover o acesso de ${u.name || u.email}?`)) {
-                                          deleteUser(u.uid);
-                                        }
-                                      }}
+                                      onClick={() => setShowDeleteUserConfirm(u.uid)}
                                       className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
                                       title="Remover Acesso"
                                     >
@@ -10109,6 +10120,135 @@ if (!user) {
                 </button>
                 <button
                   onClick={() => handleDeleteGuardian(showDeleteGuardianConfirm as string)}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                >
+                  Confirmar Exclusão
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDeleteChildConfirm && (
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteChildConfirm(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Excluir Criança?</h2>
+              <p className="text-slate-500 mb-8 font-medium">
+                Esta ação é irreversível. Todos os dados da criança serão removidos permanentemente.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowDeleteChildConfirm(null)}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    deleteChild(showDeleteChildConfirm);
+                    setShowDeleteChildConfirm(null);
+                  }}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                >
+                  Confirmar Exclusão
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDeleteUserConfirm && (
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteUserConfirm(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Remover Acesso?</h2>
+              <p className="text-slate-500 mb-8 font-medium">
+                Esta ação removerá permanentemente o acesso deste usuário ao sistema.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowDeleteUserConfirm(null)}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    deleteUser(showDeleteUserConfirm);
+                    setShowDeleteUserConfirm(null);
+                  }}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                >
+                  Confirmar Remoção
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDeleteRoomConfirm && (
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteRoomConfirm(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Excluir Sala?</h2>
+              <p className="text-slate-500 mb-8 font-medium">
+                Esta ação removerá permanentemente esta sala do sistema.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowDeleteRoomConfirm(null)}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    deleteRoom(showDeleteRoomConfirm);
+                    setShowDeleteRoomConfirm(null);
+                  }}
                   className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
                 >
                   Confirmar Exclusão

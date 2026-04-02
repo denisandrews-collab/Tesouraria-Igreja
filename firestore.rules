@@ -229,7 +229,8 @@ service cloud.firestore {
         (request.auth.uid in resource.data.guardianIds) || 
         hasPermission('kids')
       ) && isValidChild(request.resource.data);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || 
+        (isAuthenticated() && (resource.data.guardianId == request.auth.uid || (request.auth.uid in resource.data.guardianIds)));
     }
 
     match /kids_checkins/{checkinId} {

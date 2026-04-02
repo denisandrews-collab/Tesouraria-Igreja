@@ -165,6 +165,15 @@ interface Guardian {
   phone: string;
   email?: string;
   photo?: string;
+  address?: {
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
   isTeacher?: boolean;
   assignedRoomIds?: string[];
   invitedBy?: string;
@@ -177,12 +186,25 @@ interface Child {
   id: string;
   name: string;
   birthDate: string;
+  gender?: 'M' | 'F' | 'Other';
   photo?: string;
-  guardianId: string;
+  guardianId?: string;
   guardianIds?: string[];
-  allergies?: string;
-  notes?: string;
   kinship?: string;
+  bloodType?: string;
+  allergies?: string;
+  medications?: string;
+  medicalConditions?: string;
+  emergencyContact?: {
+    name: string;
+    phone: string;
+  };
+  authorizedPickups?: {
+    name: string;
+    phone: string;
+    relationship: string;
+  }[];
+  notes?: string;
   created_at: string;
 }
 
@@ -2195,10 +2217,6 @@ export default function App() {
           console.error("Firebase Auth registration failed:", authError);
           
           if (authError.code === 'auth/email-already-in-use') {
-            // Se o e-mail já existe no Auth, tentamos ver se o usuário já está logado
-            // ou se podemos apenas prosseguir para criar o documento no Firestore
-            // se o usuário souber a senha (mas aqui não temos como validar a senha sem logar)
-            // Então mostramos o modal de "já existe"
             setRegistrationGuardianData({ name: data.name, email: data.email || "", phone: data.phone });
             setGuardianAlreadyExists(true);
             setSubmitting(false);
@@ -2225,7 +2243,7 @@ export default function App() {
         }
       }
 
-      const newGuardian = {
+      const newGuardian: Guardian = {
         ...data,
         id: uid,
         created_at: new Date().toISOString()
@@ -2234,7 +2252,7 @@ export default function App() {
       if (db && isFirebaseEnabled) {
         try {
           await setDoc(doc(db, "guardians", uid), newGuardian);
-          fetchEntries();
+          await fetchEntries();
           setShowAddGuardianModal(false);
           addNotification("success", "Responsável adicionado com sucesso.");
           setSubmitting(false);
@@ -2309,7 +2327,7 @@ export default function App() {
         }
       }
 
-      const newChild = {
+      const newChild: Child = {
         ...childData,
         id,
         guardianIds: finalGuardianIds,
@@ -2318,17 +2336,14 @@ export default function App() {
 
       if (db && isFirebaseEnabled) {
         try {
-          if (existingChild) {
-            await updateDoc(doc(db, "children", id), newChild);
-          } else {
-            await addDoc(collection(db, "children"), newChild);
-          }
+          await setDoc(doc(db, "children", id), newChild);
           await fetchEntries();
           setShowAddChildModal(false);
           setChildAlreadyExists(null);
           setShowKinshipInput(false);
           addNotification("success", existingChild ? "Vínculo com a criança atualizado." : "Criança adicionada com sucesso.");
-          return newChild;
+          setSubmitting(false);
+          return id;
         } catch (fsError) {
           console.error("Firestore addChild failed, falling back to API:", fsError);
         }
@@ -7815,15 +7830,17 @@ if (!user) {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {children.map(child => (
-                      <div key={child.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group relative">
+                      <div key={child.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50/50 rounded-bl-[3rem] -mr-8 -mt-8 transition-all group-hover:bg-indigo-100/50" />
+                        
                         {userRole === "master" && (
-                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
                             <button
                               onClick={() => {
                                 setEditingChild(child);
                                 setShowEditChildModal(true);
                               }}
-                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
@@ -7833,30 +7850,61 @@ if (!user) {
                                   deleteChild(child.id);
                                 }
                               }}
-                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         )}
-                        <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                            <Baby className="w-7 h-7" />
+
+                        <div className="flex items-start gap-4 relative">
+                          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-inner ${
+                            child.gender === 'F' ? 'bg-rose-50 text-rose-500' : 
+                            child.gender === 'M' ? 'bg-blue-50 text-blue-500' : 
+                            'bg-indigo-50 text-indigo-500'
+                          }`}>
+                            <Baby className="w-8 h-8" />
                           </div>
-                          <div>
-                            <h4 className="font-bold text-slate-900">{child.name}</h4>
-                            <p className="text-xs text-slate-500">Nasc: {new Date(child.birthDate).toLocaleDateString('pt-BR')}</p>
-                            <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mt-1">
-                              Resp: {guardians.find(g => g.id === child.guardianId)?.name || 'N/A'}
-                            </p>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-slate-900 truncate pr-8">{child.name}</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                {new Date(child.birthDate).toLocaleDateString('pt-BR')}
+                              </span>
+                              {child.bloodType && (
+                                <span className="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[9px] font-black rounded-md">
+                                  {child.bloodType}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {child.guardianIds?.map(gid => {
+                                const g = guardians.find(gu => gu.id === gid);
+                                return g ? (
+                                  <span key={gid} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 text-slate-600 text-[10px] font-medium rounded-lg border border-slate-100">
+                                    <User className="w-2.5 h-2.5" />
+                                    {g.name.split(' ')[0]}
+                                  </span>
+                                ) : null;
+                              })}
+                              {!child.guardianIds && child.guardianId && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-50 text-slate-600 text-[10px] font-medium rounded-lg border border-slate-100">
+                                  <User className="w-2.5 h-2.5" />
+                                  {guardians.find(gu => gu.id === child.guardianId)?.name.split(' ')[0] || 'N/A'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        {child.allergies && (
-                          <div className="mt-4 p-3 bg-rose-50 rounded-xl border border-rose-100">
-                            <p className="text-[10px] text-rose-600 font-bold uppercase tracking-widest flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> Alergias
+
+                        {(child.allergies || child.medicalConditions) && (
+                          <div className="mt-4 p-3 bg-amber-50/50 rounded-2xl border border-amber-100/50">
+                            <div className="flex items-center gap-1.5 text-[10px] text-amber-600 font-bold uppercase tracking-widest mb-1">
+                              <AlertTriangle className="w-3 h-3" /> Saúde & Alertas
+                            </div>
+                            <p className="text-[11px] text-slate-600 line-clamp-2 italic">
+                              {[child.allergies, child.medicalConditions].filter(Boolean).join(' • ')}
                             </p>
-                            <p className="text-xs text-rose-700 mt-1">{child.allergies}</p>
                           </div>
                         )}
                       </div>
@@ -7888,50 +7936,66 @@ if (!user) {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {guardians.map(guardian => (
-                      <div key={guardian.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative group">
+                      <div key={guardian.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all relative group overflow-hidden">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50/50 rounded-bl-[3rem] -mr-8 -mt-8 transition-all group-hover:bg-slate-100/50" />
+                        
                         {userRole === "master" && (
-                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
                             <button
                               onClick={() => {
                                 setEditingGuardian(guardian);
                                 setShowEditGuardianModal(true);
                               }}
-                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => setShowDeleteGuardianConfirm(guardian.id)}
-                              className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                              className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         )}
-                        <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
-                            <User className="w-7 h-7" />
+
+                        <div className="flex items-start gap-4 relative">
+                          <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 shadow-inner group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
+                            <User className="w-8 h-8" />
                           </div>
-                          <div>
-                            <h4 className="font-bold text-slate-900">{guardian.name}</h4>
-                            <p className="text-xs text-slate-500">{guardian.phone || guardian.email}</p>
-                            <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-slate-900 truncate pr-8">{guardian.name}</h4>
+                            <p className="text-xs text-slate-500 font-medium">{guardian.phone}</p>
+                            {guardian.cpf && (
+                              <p className="text-[10px] text-slate-400 font-medium mt-0.5">CPF: {guardian.cpf}</p>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-1">
                               {guardian.isTeacher && (
-                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-full uppercase tracking-widest">Professor(a)</span>
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[9px] font-black rounded-full uppercase tracking-widest">Professor(a)</span>
                               )}
                               {guardian.status && guardian.status !== 'active' && (
-                                <span className={`px-2 py-0.5 ${guardian.status === 'pending' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'} text-[10px] font-bold rounded-full uppercase tracking-widest`}>
+                                <span className={`px-2 py-0.5 ${guardian.status === 'pending' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'} text-[9px] font-black rounded-full uppercase tracking-widest`}>
                                   {guardian.status === 'pending' ? 'Pendente' : guardian.status}
                                 </span>
                               )}
                             </div>
                           </div>
                         </div>
-                        <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                            {children.filter(c => c.guardianId === guardian.id).length} Criança(s)
-                          </span>
-                          <button className="text-indigo-600 hover:text-indigo-700 text-xs font-bold uppercase tracking-widest">Ver Detalhes</button>
+
+                        <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex -space-x-2">
+                              {children.filter(c => c.guardianIds?.includes(guardian.id) || c.guardianId === guardian.id).slice(0, 3).map(c => (
+                                <div key={c.id} className="w-6 h-6 rounded-full bg-indigo-100 border-2 border-white flex items-center justify-center text-[8px] font-bold text-indigo-600">
+                                  {c.name.charAt(0)}
+                                </div>
+                              ))}
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                              {children.filter(c => c.guardianIds?.includes(guardian.id) || c.guardianId === guardian.id).length} Criança(s)
+                            </span>
+                          </div>
+                          <button className="text-indigo-600 hover:text-indigo-700 text-[10px] font-black uppercase tracking-widest">Detalhes</button>
                         </div>
                       </div>
                     ))}
@@ -7955,15 +8019,17 @@ if (!user) {
                     {rooms.map(room => {
                       const childrenInRoom = kidsCheckIns.filter(ci => ci.room === room.name && ci.status === 'checked-in').length;
                       return (
-                        <div key={room.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all group relative">
+                        <div key={room.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 rounded-bl-[4rem] -mr-12 -mt-12 transition-all group-hover:bg-indigo-100/30" />
+                          
                           {userRole === "master" && (
-                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
                               <button
                                 onClick={() => {
                                   setEditingRoom(room);
                                   setShowEditRoomModal(true);
                                 }}
-                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
@@ -7973,42 +8039,56 @@ if (!user) {
                                     deleteRoom(room.id);
                                   }
                                 }}
-                                className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-600 hover:bg-rose-50 transition-all"
+                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           )}
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-                                <Home className="w-5 h-5" />
+
+                          <div className="flex items-center justify-between mb-6 relative">
+                            <div className="flex items-center gap-4">
+                              <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                <Home className="w-7 h-7" />
                               </div>
                               <div>
-                                <h4 className="font-bold text-slate-900">{room.name}</h4>
-                                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-widest">
-                                  {room.minAge !== undefined && room.maxAge !== undefined 
-                                    ? `${room.minAge}-${room.maxAge} anos` 
-                                    : 'Faixa etária não definida'}
-                                  {room.teacher && ` • Prof: ${room.teacher}`}
-                                </p>
+                                <h4 className="font-bold text-slate-900 text-lg">{room.name}</h4>
+                                <p className="text-xs text-slate-500 font-medium">Capacidade: {room.capacity || 'N/A'}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-4 relative">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500 font-medium">Ocupação</span>
+                              <span className={`font-bold ${childrenInRoom >= (room.capacity || 0) ? 'text-rose-500' : 'text-indigo-600'}`}>
+                                {childrenInRoom} / {room.capacity || '∞'}
+                              </span>
+                            </div>
+                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${Math.min(100, (childrenInRoom / (room.capacity || 1)) * 100)}%` }}
+                                className={`h-full rounded-full ${
+                                  childrenInRoom >= (room.capacity || 0) ? 'bg-rose-500' : 'bg-indigo-600'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-6 pt-6 border-t border-slate-50 flex items-center justify-between relative">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
+                                <User className="w-4 h-4" />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Professor(a)</span>
+                                <span className="text-xs font-bold text-slate-700">{room.teacher || 'Não atribuído'}</span>
                               </div>
                             </div>
                             <div className="text-right">
-                              <span className="text-xl font-black text-indigo-600">{childrenInRoom}</span>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Crianças</p>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full transition-all ${childrenInRoom >= (room.capacity || 20) ? 'bg-rose-500' : 'bg-indigo-500'}`}
-                                style={{ width: `${Math.min(100, (childrenInRoom / (room.capacity || 20)) * 100)}%` }}
-                              />
-                            </div>
-                            <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                              <span>Capacidade: {room.capacity || 20}</span>
-                              <span>{Math.round((childrenInRoom / (room.capacity || 20)) * 100)}%</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Faixa Etária</span>
+                              <span className="text-xs font-bold text-slate-700">{room.minAge || 0} - {room.maxAge || 10} anos</span>
                             </div>
                           </div>
                         </div>
@@ -8662,40 +8742,101 @@ if (!user) {
                 const assignedRoomIds = Array.from(formData.getAll('assignedRooms')) as string[];
                 handleAddGuardian({
                   name: formData.get('name') as string,
+                  cpf: formData.get('cpf') as string,
                   phone: formData.get('phone') as string,
                   email: formData.get('email') as string,
+                  address: {
+                    street: formData.get('street') as string,
+                    number: formData.get('number') as string,
+                    complement: formData.get('complement') as string,
+                    neighborhood: formData.get('neighborhood') as string,
+                    city: formData.get('city') as string,
+                    state: formData.get('state') as string,
+                    zipCode: formData.get('zipCode') as string,
+                  },
                   isTeacher: formData.get('isTeacher') === 'on',
                   assignedRoomIds: assignedRoomIds,
                 });
-              }} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
-                  <input
-                    name="name"
-                    required
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    placeholder="Ex: João Silva"
-                  />
+              }} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                    <input
+                      name="name"
+                      required
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="Ex: João Silva"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
+                    <input
+                      name="cpf"
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="000.000.000-00"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone / WhatsApp</label>
-                  <input
-                    name="phone"
-                    required
-                    type="tel"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    placeholder="(00) 00000-0000"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone / WhatsApp</label>
+                    <input
+                      name="phone"
+                      required
+                      type="tel"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="(00) 00000-0000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
+                    <input
+                      name="email"
+                      type="email"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="email@exemplo.com"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail (Opcional)</label>
-                  <input
-                    name="email"
-                    type="email"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    placeholder="email@exemplo.com"
-                  />
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Endereço</p>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">CEP</label>
+                      <input name="zipCode" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="00000-000" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">UF</label>
+                      <input name="state" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="SP" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Logradouro</label>
+                      <input name="street" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Rua, Av..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Nº</label>
+                      <input name="number" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="123" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Bairro</label>
+                      <input name="neighborhood" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Bairro" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Cidade</label>
+                      <input name="city" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Cidade" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Complemento</label>
+                    <input name="complement" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Apto, Bloco..." />
+                  </div>
                 </div>
 
                 {userRole === "master" && (
@@ -8865,25 +9006,44 @@ if (!user) {
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
+                const guardianIds = Array.from(formData.getAll('guardianIds')) as string[];
                 handleAddChild({
                   name: formData.get('name') as string,
                   birthDate: formData.get('birthDate') as string,
-                  guardianId: formData.get('guardianId') as string,
+                  gender: formData.get('gender') as 'M' | 'F' | 'Other',
+                  guardianIds: guardianIds,
+                  bloodType: formData.get('bloodType') as string,
                   allergies: formData.get('allergies') as string,
+                  medications: formData.get('medications') as string,
+                  medicalConditions: formData.get('medicalConditions') as string,
+                  emergencyContact: {
+                    name: formData.get('emergencyContactName') as string,
+                    phone: formData.get('emergencyContactPhone') as string,
+                  },
                   notes: formData.get('notes') as string,
                 });
-              }} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
-                  <input
-                    name="name"
-                    required
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    placeholder="Nome completo"
-                  />
+              }} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                    <input
+                      name="name"
+                      required
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      placeholder="Nome completo"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Gênero</label>
+                    <select name="gender" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                      <option value="M">Masculino</option>
+                      <option value="F">Feminino</option>
+                      <option value="Other">Outro</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
                     <input
@@ -8894,30 +9054,71 @@ if (!user) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
-                    <div className="max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                      {guardians.map(g => (
-                        <label key={g.id} className="flex items-center space-x-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            name="guardianIds"
-                            value={g.id}
-                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                          />
-                          <span className="text-xs font-medium text-slate-700">{g.name}</span>
-                        </label>
-                      ))}
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Tipo Sanguíneo</label>
+                    <select name="bloodType" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                      <option value="">Não informado</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    {guardians.map(g => (
+                      <label key={g.id} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-white rounded transition-colors">
+                        <input
+                          type="checkbox"
+                          name="guardianIds"
+                          value={g.id}
+                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs font-medium text-slate-700 truncate">{g.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Informações Médicas</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Alergias / Restrições</label>
+                    <input name="allergies" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Ex: Amendoim, Lactose..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Medicamentos</label>
+                    <input name="medications" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Uso contínuo..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Condições Médicas</label>
+                    <input name="medicalConditions" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Ex: Asma, Diabetes..." />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Contato de Emergência</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Nome do Contato</label>
+                      <input name="emergencyContactName" type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="Nome" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Telefone</label>
+                      <input name="emergencyContactPhone" type="tel" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="(00) 00000-0000" />
                     </div>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
-                  <input
-                    name="allergies"
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                    placeholder="Nenhuma"
-                  />
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Observações</label>
+                  <textarea name="notes" rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none resize-none" placeholder="Informações adicionais..."></textarea>
                 </div>
                 <button
                   disabled={submitting}
@@ -8960,23 +9161,44 @@ if (!user) {
                 const assignedRoomIds = Array.from(formData.getAll('assignedRooms')) as string[];
                 handleUpdateGuardian(editingGuardian.id, {
                   name: formData.get('name') as string,
+                  cpf: formData.get('cpf') as string,
                   phone: formData.get('phone') as string,
                   email: formData.get('email') as string,
+                  address: {
+                    street: formData.get('street') as string,
+                    number: formData.get('number') as string,
+                    complement: formData.get('complement') as string,
+                    neighborhood: formData.get('neighborhood') as string,
+                    city: formData.get('city') as string,
+                    state: formData.get('state') as string,
+                    zipCode: formData.get('zipCode') as string,
+                  },
                   isTeacher: formData.get('isTeacher') === 'on',
                   assignedRoomIds: assignedRoomIds,
                 });
-              }} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
-                  <input
-                    name="name"
-                    required
-                    defaultValue={editingGuardian.name}
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                  />
+              }} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                    <input
+                      name="name"
+                      required
+                      defaultValue={editingGuardian.name}
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
+                    <input
+                      name="cpf"
+                      defaultValue={editingGuardian.cpf}
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone</label>
                     <input
@@ -9038,7 +9260,6 @@ if (!user) {
                     </div>
                   </div>
                 </div>
-
                 <button
                   disabled={submitting}
                   type="submit"
@@ -9080,22 +9301,40 @@ if (!user) {
                 handleUpdateChild(editingChild.id, {
                   name: formData.get('name') as string,
                   birthDate: formData.get('birthDate') as string,
+                  gender: formData.get('gender') as 'M' | 'F' | 'Other',
                   guardianIds: guardianIds,
+                  bloodType: formData.get('bloodType') as string,
                   allergies: formData.get('allergies') as string,
+                  medications: formData.get('medications') as string,
+                  medicalConditions: formData.get('medicalConditions') as string,
+                  emergencyContact: {
+                    name: formData.get('emergencyContactName') as string,
+                    phone: formData.get('emergencyContactPhone') as string,
+                  },
                   notes: formData.get('notes') as string,
                 });
-              }} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
-                  <input
-                    name="name"
-                    required
-                    defaultValue={editingChild.name}
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                  />
+              }} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                    <input
+                      name="name"
+                      required
+                      defaultValue={editingChild.name}
+                      type="text"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Gênero</label>
+                    <select name="gender" defaultValue={editingChild.gender} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                      <option value="M">Masculino</option>
+                      <option value="F">Feminino</option>
+                      <option value="Other">Outro</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
                     <input
@@ -9107,31 +9346,72 @@ if (!user) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
-                    <div className="max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                      {guardians.map(g => (
-                        <label key={g.id} className="flex items-center space-x-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            name="guardianIds"
-                            value={g.id}
-                            defaultChecked={editingChild.guardianIds?.includes(g.id) || editingChild.guardianId === g.id}
-                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                          />
-                          <span className="text-xs font-medium text-slate-700">{g.name}</span>
-                        </label>
-                      ))}
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Tipo Sanguíneo</label>
+                    <select name="bloodType" defaultValue={editingChild.bloodType} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                      <option value="">Não informado</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    {guardians.map(g => (
+                      <label key={g.id} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-white rounded transition-colors">
+                        <input
+                          type="checkbox"
+                          name="guardianIds"
+                          value={g.id}
+                          defaultChecked={editingChild.guardianIds?.includes(g.id) || editingChild.guardianId === g.id}
+                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs font-medium text-slate-700 truncate">{g.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Informações Médicas</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Alergias / Restrições</label>
+                    <input name="allergies" type="text" defaultValue={editingChild.allergies} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Medicamentos</label>
+                    <input name="medications" type="text" defaultValue={editingChild.medications} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 ml-1">Condições Médicas</label>
+                    <input name="medicalConditions" type="text" defaultValue={editingChild.medicalConditions} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Contato de Emergência</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Nome do Contato</label>
+                      <input name="emergencyContactName" type="text" defaultValue={editingChild.emergencyContact?.name} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Telefone</label>
+                      <input name="emergencyContactPhone" type="tel" defaultValue={editingChild.emergencyContact?.phone} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
                     </div>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Alergias / Restrições</label>
-                  <input
-                    name="allergies"
-                    defaultValue={editingChild.allergies}
-                    type="text"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
-                  />
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Observações</label>
+                  <textarea name="notes" rows={2} defaultValue={editingChild.notes} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none resize-none"></textarea>
                 </div>
                 <button
                   disabled={submitting}

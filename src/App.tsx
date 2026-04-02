@@ -2027,11 +2027,19 @@ export default function App() {
       return;
     }
     try {
-      // Delete from both users and guardians collections
+      // Delete from Firestore
       await Promise.all([
         deleteDoc(doc(db, "users", uid)),
         deleteDoc(doc(db, "guardians", uid))
       ]);
+
+      // Delete from API (SQLite)
+      try {
+        await fetch(`/api/guardians/${uid}`, { method: "DELETE" });
+      } catch (apiError) {
+        console.warn("API delete user failed, but Firestore succeeded:", apiError);
+      }
+
       addNotification("success", "Usuário removido com sucesso!");
       // Update local state
       setGuardians(prev => prev.filter(g => g.id !== uid));
@@ -2054,6 +2062,14 @@ export default function App() {
 
     try {
       await deleteDoc(doc(db, "children", id));
+      
+      // Delete from API (SQLite)
+      try {
+        await fetch(`/api/children/${id}`, { method: "DELETE" });
+      } catch (apiError) {
+        console.warn("API delete child failed, but Firestore succeeded:", apiError);
+      }
+
       addNotification("success", "Criança excluída com sucesso!");
       // Update local state optimistically or fetch
       setChildren(prev => prev.filter(c => c.id !== id));
@@ -2068,6 +2084,14 @@ export default function App() {
     if (userRole !== "master") return;
     try {
       await deleteDoc(doc(db, "rooms", id));
+
+      // Delete from API (SQLite)
+      try {
+        await fetch(`/api/rooms/${id}`, { method: "DELETE" });
+      } catch (apiError) {
+        console.warn("API delete room failed, but Firestore succeeded:", apiError);
+      }
+
       addNotification("success", "Sala excluída com sucesso!");
       fetchEntries();
     } catch (error) {

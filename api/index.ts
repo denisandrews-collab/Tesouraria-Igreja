@@ -638,6 +638,18 @@ app.use(express.json());
     }
   });
 
+  app.delete("/api/guardians/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      db.prepare("DELETE FROM guardians WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting guardian:", error);
+      res.status(500).json({ error: "Failed to delete guardian" });
+    }
+  });
+
   app.get("/api/children", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
@@ -683,6 +695,18 @@ app.use(express.json());
     }
   });
 
+  app.delete("/api/children/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      db.prepare("DELETE FROM children WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting child:", error);
+      res.status(500).json({ error: "Failed to delete child" });
+    }
+  });
+
   app.get("/api/rooms", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
@@ -723,6 +747,18 @@ app.use(express.json());
     }
   });
 
+  app.delete("/api/rooms/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      db.prepare("DELETE FROM rooms WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting room:", error);
+      res.status(500).json({ error: "Failed to delete room" });
+    }
+  });
+
   app.get("/api/kids_checkins", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
@@ -752,6 +788,18 @@ app.use(express.json());
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update checkin" });
+    }
+  });
+
+  app.delete("/api/kids_checkins/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      db.prepare("DELETE FROM kids_checkins WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting checkin:", error);
+      res.status(500).json({ error: "Failed to delete checkin" });
     }
   });
 

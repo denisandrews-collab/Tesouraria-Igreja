@@ -2037,6 +2037,7 @@ export default function App() {
       // Optimistic update
       setAllUsers(prev => prev.filter(u => u.uid !== uid));
 
+      let firestoreDeleted = false;
       // Delete from Firestore
       if (db && isFirebaseEnabled) {
         try {
@@ -2044,24 +2045,30 @@ export default function App() {
             deleteDoc(doc(db, "users", uid)),
             deleteDoc(doc(db, "guardians", uid))
           ]);
+          firestoreDeleted = true;
         } catch (fsError) {
           console.error("Firestore delete user failed:", fsError);
-          // We continue to API but we'll refetch later
         }
       }
 
       // Delete from API (SQLite)
+      let apiDeleted = false;
       try {
-        await fetch(`/api/guardians/${uid}`, { method: "DELETE" });
+        const response = await fetch(`/api/guardians/${uid}`, { method: "DELETE" });
+        if (response.ok) apiDeleted = true;
       } catch (apiError) {
         console.warn("API delete user failed:", apiError);
+      }
+
+      if (!firestoreDeleted && !apiDeleted) {
+        throw new Error("Falha ao excluir usuário em ambas as fontes de dados.");
       }
 
       addNotification("success", "Usuário removido com sucesso!");
       await fetchEntries();
     } catch (error) {
       console.error("Error deleting user:", error);
-      addNotification("error", "Erro ao remover usuário.");
+      addNotification("error", "Erro ao remover usuário. Verifique sua conexão.");
       await fetchEntries();
     } finally {
       setSubmitting(false);
@@ -2084,20 +2091,27 @@ export default function App() {
       // Optimistic update
       setChildren(prev => prev.filter(c => c.id !== id));
 
+      let firestoreDeleted = false;
       if (db && isFirebaseEnabled) {
         try {
           await deleteDoc(doc(db, "children", id));
+          firestoreDeleted = true;
         } catch (fsError) {
           console.error("Firestore delete child failed:", fsError);
-          throw fsError;
         }
       }
 
       // Delete from API (SQLite)
+      let apiDeleted = false;
       try {
-        await fetch(`/api/children/${id}`, { method: "DELETE" });
+        const response = await fetch(`/api/children/${id}`, { method: "DELETE" });
+        if (response.ok) apiDeleted = true;
       } catch (apiError) {
-        console.warn("API delete child failed, but Firestore succeeded:", apiError);
+        console.warn("API delete child failed:", apiError);
+      }
+
+      if (!firestoreDeleted && !apiDeleted) {
+        throw new Error("Falha ao excluir criança em ambas as fontes de dados.");
       }
 
       addNotification("success", "Criança excluída com sucesso!");
@@ -2592,7 +2606,7 @@ export default function App() {
       // Optimistic update: remove from local state immediately
       setGuardians(prev => prev.filter(g => String(g.id) !== String(id)));
 
-      let firestoreSuccess = false;
+      let firestoreDeleted = false;
 
       // 1. Try Firestore Deletion
       if (db && isFirebaseEnabled) {
@@ -2602,26 +2616,29 @@ export default function App() {
             deleteDoc(doc(db, "guardians", id)),
             deleteDoc(doc(db, "users", id))
           ]);
-          firestoreSuccess = true;
+          firestoreDeleted = true;
           console.log("Guardian deleted from Firestore:", id);
         } catch (fsError) {
           console.error("Firestore deleteGuardian failed:", fsError);
-          // If Firestore is enabled and it fails, we should probably throw to prevent "success" message
-          if (isFirebaseEnabled) throw fsError;
         }
       }
 
-      // 2. Try API Deletion (Always try if possible to keep in sync)
+      // 2. Try API Deletion
+      let apiDeleted = false;
       try {
         const response = await fetch(`/api/guardians/${id}`, {
           method: "DELETE",
         });
-        if (!response.ok && !firestoreSuccess) {
-           throw new Error("Falha ao excluir na API");
+        if (response.ok) {
+          apiDeleted = true;
         }
       } catch (apiError) {
         console.error("API deleteGuardian failed:", apiError);
-        if (!firestoreSuccess) throw apiError;
+      }
+
+      // If both failed, throw error
+      if (!firestoreDeleted && !apiDeleted) {
+        throw new Error("Falha ao excluir responsável em ambas as fontes de dados.");
       }
 
       // 3. Finalize
@@ -2638,7 +2655,7 @@ export default function App() {
       addNotification("success", "Responsável excluído com sucesso.");
     } catch (error) {
       console.error("Error deleting guardian:", error);
-      addNotification("error", "Erro ao excluir responsável. Verifique suas permissões.");
+      addNotification("error", "Erro ao excluir responsável. Verifique suas permissões e conexão.");
       await fetchEntries(); // Rollback/Refresh
     } finally {
       setSubmitting(false);

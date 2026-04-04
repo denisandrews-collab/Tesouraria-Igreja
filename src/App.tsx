@@ -4738,7 +4738,12 @@ if (isMobileCheckin) {
                 {guardianActiveTab === "home" && (
                   <div className="space-y-8">
                     <div className="space-y-2">
-                      <h2 className="text-3xl font-black text-slate-900 tracking-tight">Olá, {selectedGuardian.name.split(' ')[0]}! 👋</h2>
+                      <h2 
+                        onClick={() => setGuardianActiveTab("kids")}
+                        className="text-3xl font-black text-slate-900 tracking-tight cursor-pointer hover:text-indigo-600 transition-colors"
+                      >
+                        Olá, {selectedGuardian.name.split(' ')[0]}! 👋
+                      </h2>
                       <p className="text-sm text-slate-500 font-medium">O que vamos fazer hoje?</p>
                     </div>
 
@@ -4828,7 +4833,7 @@ if (isMobileCheckin) {
                     </div>
 
                     <div className="space-y-4">
-                      {children.filter(c => c.guardianId === selectedGuardian.id).map(child => (
+                      {children.filter(c => c.guardianId === selectedGuardian.id || c.guardianIds?.includes(selectedGuardian.id)).map(child => (
                         <div key={child.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-indigo-600 border border-slate-100">
@@ -4841,12 +4846,26 @@ if (isMobileCheckin) {
                               </p>
                             </div>
                           </div>
-                          <button className="p-2 text-slate-300 hover:text-indigo-600 transition-colors">
-                            <ChevronRight className="w-6 h-6" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                setEditingChild(child);
+                                setShowEditChildModal(true);
+                              }}
+                              className="p-3 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"
+                            >
+                              <Edit className="w-5 h-5" />
+                            </button>
+                            <button 
+                              onClick={() => setShowDeleteChildConfirm(child.id)}
+                              className="p-3 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
-                      {children.filter(c => c.guardianId === selectedGuardian.id).length === 0 && (
+                      {children.filter(c => c.guardianId === selectedGuardian.id || c.guardianIds?.includes(selectedGuardian.id)).length === 0 && (
                         <div className="text-center py-12 bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
                           <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-300">
                             <Baby className="w-8 h-8" />
@@ -4921,7 +4940,15 @@ if (isMobileCheckin) {
                             <Phone className="w-4 h-4 text-slate-400" />
                             <p className="text-sm font-bold text-slate-700">{selectedGuardian.phone}</p>
                           </div>
-                          <button className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Editar</button>
+                          <button 
+                            onClick={() => {
+                              setEditingGuardian(selectedGuardian);
+                              setShowEditGuardianModal(true);
+                            }}
+                            className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-colors"
+                          >
+                            Editar
+                          </button>
                         </div>
                         <button 
                           onClick={handleLogout}
@@ -5714,6 +5741,324 @@ if (isMobileCheckin) {
             )}
           </motion.div>
         </div>
+
+        <AnimatePresence>
+          {showEditChildModal && editingChild && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowEditChildModal(false)}
+                className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-xl font-bold text-slate-900">Editar Criança</h3>
+                  <button onClick={() => setShowEditChildModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const guardianIds = Array.from(formData.getAll('guardianIds')) as string[];
+                  handleUpdateChild(editingChild.id, {
+                    name: formData.get('name') as string,
+                    birthDate: formData.get('birthDate') as string,
+                    gender: formData.get('gender') as 'M' | 'F' | 'Other',
+                    guardianIds: guardianIds,
+                    bloodType: formData.get('bloodType') as string,
+                    allergies: formData.get('allergies') as string,
+                    medications: formData.get('medications') as string,
+                    medicalConditions: formData.get('medicalConditions') as string,
+                    emergencyContact: {
+                      name: formData.get('emergencyContactName') as string,
+                      phone: formData.get('emergencyContactPhone') as string,
+                    },
+                    notes: formData.get('notes') as string,
+                  });
+                }} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome da Criança</label>
+                      <input
+                        name="name"
+                        required
+                        defaultValue={editingChild.name}
+                        type="text"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Gênero</label>
+                      <select name="gender" defaultValue={editingChild.gender} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                        <option value="M">Masculino</option>
+                        <option value="F">Feminino</option>
+                        <option value="Other">Outro</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Data de Nascimento</label>
+                      <input
+                        name="birthDate"
+                        required
+                        defaultValue={editingChild.birthDate}
+                        type="date"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Tipo Sanguíneo</label>
+                      <select name="bloodType" defaultValue={editingChild.bloodType} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none">
+                        <option value="">Não informado</option>
+                        <option value="A+">A+</option>
+                        <option value="A-">A-</option>
+                        <option value="B+">B+</option>
+                        <option value="B-">B-</option>
+                        <option value="AB+">AB+</option>
+                        <option value="AB-">AB-</option>
+                        <option value="O+">O+</option>
+                        <option value="O-">O-</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Responsáveis</label>
+                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      {guardians.map(g => (
+                        <label key={g.id} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-white rounded transition-colors">
+                          <input
+                            type="checkbox"
+                            name="guardianIds"
+                            value={g.id}
+                            defaultChecked={editingChild.guardianIds?.includes(g.id) || editingChild.guardianId === g.id}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs font-medium text-slate-700 truncate">{g.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Informações Médicas</p>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Alergias / Restrições</label>
+                      <input name="allergies" type="text" defaultValue={editingChild.allergies} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Medicamentos</label>
+                      <input name="medications" type="text" defaultValue={editingChild.medications} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 ml-1">Condições Médicas</label>
+                      <input name="medicalConditions" type="text" defaultValue={editingChild.medicalConditions} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Contato de Emergência</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-slate-400 ml-1">Nome do Contato</label>
+                        <input name="emergencyContactName" type="text" defaultValue={editingChild.emergencyContact?.name} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-slate-400 ml-1">Telefone</label>
+                        <input name="emergencyContactPhone" type="tel" defaultValue={editingChild.emergencyContact?.phone} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Observações</label>
+                    <textarea name="notes" rows={2} defaultValue={editingChild.notes} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none resize-none"></textarea>
+                  </div>
+                  <button
+                    disabled={submitting}
+                    type="submit"
+                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                  >
+                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Atualizar Criança"}
+                  </button>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {showDeleteChildConfirm && (
+            <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowDeleteChildConfirm(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+              >
+                <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                  <AlertTriangle className="w-10 h-10" />
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-2">Excluir Criança?</h2>
+                <p className="text-slate-500 mb-8 font-medium">
+                  Esta ação removerá permanentemente esta criança do sistema.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setShowDeleteChildConfirm(null)}
+                    disabled={submitting}
+                    className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await deleteChild(showDeleteChildConfirm);
+                      setShowDeleteChildConfirm(null);
+                    }}
+                    disabled={submitting}
+                    className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {showEditGuardianModal && editingGuardian && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowEditGuardianModal(false)}
+                className="fixed inset-0 bg-slate-900/80 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-xl font-bold text-slate-900">Editar Responsável</h3>
+                  <button onClick={() => setShowEditGuardianModal(false)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  handleUpdateGuardian(editingGuardian.id, {
+                    name: formData.get('name') as string,
+                    email: formData.get('email') as string,
+                    phone: formData.get('phone') as string,
+                  });
+                }} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                    <input
+                      name="name"
+                      required
+                      defaultValue={editingGuardian.name}
+                      type="text"
+                      className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">E-mail</label>
+                    <input
+                      name="email"
+                      required
+                      defaultValue={editingGuardian.email}
+                      type="email"
+                      className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Telefone</label>
+                    <input
+                      name="phone"
+                      required
+                      defaultValue={editingGuardian.phone}
+                      type="tel"
+                      className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <button
+                    disabled={submitting}
+                    type="submit"
+                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                  >
+                    {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Atualizar Responsável"}
+                  </button>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {showDeleteGuardianConfirm && (
+            <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowDeleteGuardianConfirm(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+              >
+                <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                  <AlertTriangle className="w-10 h-10" />
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-2">Excluir Cadastro?</h2>
+                <p className="text-slate-500 mb-8 font-medium">
+                  Esta ação removerá permanentemente seu cadastro do sistema.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setShowDeleteGuardianConfirm(null)}
+                    disabled={submitting}
+                    className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await handleDeleteGuardian(showDeleteGuardianConfirm as string);
+                      setShowDeleteGuardianConfirm(null);
+                    }}
+                    disabled={submitting}
+                    className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </Layout>
   );

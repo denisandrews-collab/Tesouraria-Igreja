@@ -1465,7 +1465,7 @@ export default function App() {
       
       if (!acc[dateLabel]) acc[dateLabel] = { name: dateLabel, total: 0 };
       
-      const counts = typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts;
+      const counts = typeof curr.counts === 'string' ? safeJSONParse(curr.counts) : curr.counts;
       const entryTotal = Object.values(counts).reduce((sum: number, c: any) => {
         const count = c as { men?: number; women?: number; children?: number };
         return sum + (count.men || 0) + (count.women || 0) + (count.children || 0);
@@ -1481,7 +1481,7 @@ export default function App() {
     const totalAttendanceToday = attendanceEntries
       .filter(e => e.date === new Date().toISOString().split("T")[0])
       .reduce((acc: number, curr) => {
-        const counts = (typeof curr.counts === 'string' ? JSON.parse(curr.counts) : curr.counts) as Record<string, any>;
+        const counts = (typeof curr.counts === 'string' ? safeJSONParse(curr.counts) : curr.counts) as Record<string, any>;
         const entryTotal = Object.values(counts).reduce((sum: number, c: any) => {
           const count = c as { men?: number; women?: number; children?: number };
           return sum + (Number(count.men) || 0) + (Number(count.women) || 0) + (Number(count.children) || 0);
@@ -1597,7 +1597,7 @@ export default function App() {
 
         socket.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
+            const data = safeJSONParse(event.data);
             if (data.type === "NEW_ENTRY") {
               addNotification("info", `Novo lançamento de ${data.entry.treasurer}: R$ ${data.entry.amount.toLocaleString('pt-BR')}`, "Novo Registro");
               fetchEntries().catch(() => {});
@@ -1967,6 +1967,15 @@ export default function App() {
     }
   };
 
+  const safeJSONParse = (str: string, fallback: any = {}) => {
+    try {
+      return JSON.parse(str);
+    } catch (e) {
+      console.error("Safe JSON Parse Error:", e, "String:", str);
+      return fallback;
+    }
+  };
+
   const fetchKidsFromAPI = async () => {
     try {
       console.log("Fetching kids data from API...");
@@ -1977,37 +1986,59 @@ export default function App() {
         fetch(`/api/rooms?t=${Date.now()}`)
       ]);
 
+      let hasError = false;
+
       if (guardiansRes.ok) {
         const data = await guardiansRes.json();
         if (Array.isArray(data)) {
           const parsedGuardians = data.map((g: any) => ({
             ...g,
             isTeacher: g.isTeacher === 1,
-            assignedRoomIds: typeof g.assignedRoomIds === 'string' ? JSON.parse(g.assignedRoomIds) : (g.assignedRoomIds || [])
+            assignedRoomIds: typeof g.assignedRoomIds === 'string' ? safeJSONParse(g.assignedRoomIds, []) : (g.assignedRoomIds || [])
           }));
           setGuardians(Array.from(new Map(parsedGuardians.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[]);
         }
+      } else {
+        hasError = true;
+        console.error("Failed to fetch guardians:", guardiansRes.status);
       }
+
       if (childrenRes.ok) {
         const data = await childrenRes.json();
         if (Array.isArray(data)) {
           const parsedChildren = data.map((c: any) => ({
             ...c,
-            guardianIds: typeof c.guardianIds === 'string' ? JSON.parse(c.guardianIds) : (c.guardianIds || [])
+            guardianIds: typeof c.guardianIds === 'string' ? safeJSONParse(c.guardianIds, []) : (c.guardianIds || [])
           }));
           setChildren(parsedChildren);
         }
+      } else {
+        hasError = true;
+        console.error("Failed to fetch children:", childrenRes.status);
       }
+
       if (checkinsRes.ok) {
         const data = await checkinsRes.json();
         if (Array.isArray(data)) setKidsCheckIns(data);
+      } else {
+        hasError = true;
+        console.error("Failed to fetch checkins:", checkinsRes.status);
       }
+
       if (roomsRes.ok) {
         const data = await roomsRes.json();
         if (Array.isArray(data)) setRooms(data);
+      } else {
+        hasError = true;
+        console.error("Failed to fetch rooms:", roomsRes.status);
+      }
+
+      if (hasError) {
+        addNotification("warning", "Alguns dados do Ministério Infantil não puderam ser carregados. Tente recarregar a página.", "Erro de Sincronização");
       }
     } catch (apiErr) {
       console.error("Error fetching kids data from API:", apiErr);
+      addNotification("error", "Erro ao conectar com o servidor para buscar dados do Ministério Infantil.", "Erro de Conexão");
     }
   };
 
@@ -8046,7 +8077,7 @@ if (!user) {
                             const groupTotals: Record<string, { men: number; women: number; children: number }> = {};
                             entries.forEach(entry => {
                               const rawCounts = entry.counts || {};
-                              const countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                              const countsObj = typeof rawCounts === 'string' ? safeJSONParse(rawCounts) : rawCounts;
                               
                               Object.entries(countsObj).forEach(([locName, counts]) => {
                                 const c = counts as { men: number; women: number; children: number };
@@ -8097,7 +8128,7 @@ if (!user) {
                                   const rawCounts = att.counts || {};
                                   let countsObj: Record<string, any> = {};
                                   try {
-                                    countsObj = typeof rawCounts === 'string' ? JSON.parse(rawCounts) : rawCounts;
+                                    countsObj = typeof rawCounts === 'string' ? safeJSONParse(rawCounts) : rawCounts;
                                   } catch (e) {
                                     console.error("Error parsing counts:", e);
                                   }
@@ -10412,7 +10443,7 @@ if (!user) {
                         {(() => {
                           try {
                             const parsedCounts = (typeof selectedEntry.counts === 'string' 
-                              ? JSON.parse(selectedEntry.counts) 
+                              ? safeJSONParse(selectedEntry.counts) 
                               : selectedEntry.counts) as Record<string, number | string>;
                             
                             return Object.entries(parsedCounts)

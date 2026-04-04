@@ -58,24 +58,35 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
 let db: any = null;
 try {
   const Database = (await import("better-sqlite3")).default;
-  db = new Database("treasury.db");
+  const dbPath = path.join(process.cwd(), "treasury.db");
+  
+  try {
+    db = new Database(dbPath);
+    console.log("SQLite initialized at:", dbPath);
+  } catch (dbError) {
+    console.warn("Failed to initialize SQLite at root, trying /tmp:", dbError);
+    const tmpPath = path.join("/tmp", "treasury.db");
+    db = new Database(tmpPath);
+    console.log("SQLite initialized at:", tmpPath);
+  }
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      treasurer TEXT NOT NULL,
-      treasurer_email TEXT,
-      date TEXT NOT NULL,
-      type TEXT NOT NULL,
-      amount REAL NOT NULL,
-      counts TEXT,
-      notes TEXT,
-      is_reversed INTEGER DEFAULT 0,
-      reversal_reason TEXT,
-      period TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  if (db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        treasurer TEXT NOT NULL,
+        treasurer_email TEXT,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        counts TEXT,
+        notes TEXT,
+        is_reversed INTEGER DEFAULT 0,
+        reversal_reason TEXT,
+        period TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS attendance (
@@ -136,68 +147,71 @@ try {
     )
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS kids_checkins (
-      id TEXT PRIMARY KEY,
-      childId TEXT NOT NULL,
-      guardianId TEXT NOT NULL,
-      roomId TEXT NOT NULL,
-      room TEXT NOT NULL,
-      status TEXT NOT NULL,
-      checkInTime DATETIME DEFAULT CURRENT_TIMESTAMP,
-      checkoutTime DATETIME,
-      checkedOutBy TEXT
-    )
-  `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS kids_checkins (
+        id TEXT PRIMARY KEY,
+        childId TEXT NOT NULL,
+        guardianId TEXT NOT NULL,
+        roomId TEXT NOT NULL,
+        room TEXT NOT NULL,
+        status TEXT NOT NULL,
+        checkInTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+        checkoutTime DATETIME,
+        checkedOutBy TEXT
+      )
+    `);
 
-  // Insert default locations if they don't exist
-  const defaultLocations = ["Salão Principal"];
-  defaultLocations.forEach(name => {
-    const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
-    if (!exists) {
-      db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
-    }
-  });
-  console.log("SQLite initialized successfully");
+    // Insert default locations if they don't exist
+    const defaultLocations = ["Salão Principal"];
+    defaultLocations.forEach(name => {
+      const exists = db.prepare("SELECT id FROM locations WHERE name = ?").get(name);
+      if (!exists) {
+        db.prepare("INSERT INTO locations (name, is_default) VALUES (?, 1)").run(name);
+      }
+    });
+    console.log("SQLite initialized successfully");
+  }
 } catch (error) {
   console.error("Failed to initialize SQLite (this is expected on some serverless platforms):", error);
 }
 
-const columns = [
-  { name: "counts", type: "TEXT" },
-  { name: "notes", type: "TEXT" },
-  { name: "is_reversed", type: "INTEGER DEFAULT 0" },
-  { name: "reversal_reason", type: "TEXT" },
-  { name: "period", type: "TEXT" },
-  { name: "treasurer_email", type: "TEXT" }
-];
+if (db) {
+  const columns = [
+    { name: "counts", type: "TEXT" },
+    { name: "notes", type: "TEXT" },
+    { name: "is_reversed", type: "INTEGER DEFAULT 0" },
+    { name: "reversal_reason", type: "TEXT" },
+    { name: "period", type: "TEXT" },
+    { name: "treasurer_email", type: "TEXT" }
+  ];
 
-columns.forEach(col => {
+  columns.forEach(col => {
+    try {
+      db.exec(`ALTER TABLE entries ADD COLUMN ${col.name} ${col.type}`);
+    } catch (e) {}
+  });
+
+  // Migration for attendance table
   try {
-    db.exec(`ALTER TABLE entries ADD COLUMN ${col.name} ${col.type}`);
+    db.exec("ALTER TABLE attendance ADD COLUMN counts TEXT");
   } catch (e) {}
-});
+  try {
+    db.exec("ALTER TABLE attendance ADD COLUMN responsible TEXT");
+  } catch (e) {}
 
-// Migration for attendance table
-try {
-  db.exec("ALTER TABLE attendance ADD COLUMN counts TEXT");
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE attendance ADD COLUMN responsible TEXT");
-} catch (e) {}
+  // Migration for guardians table
+  try {
+    db.exec("ALTER TABLE guardians ADD COLUMN isTeacher INTEGER DEFAULT 0");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE guardians ADD COLUMN assignedRoomIds TEXT");
+  } catch (e) {}
 
-// Migration for guardians table
-try {
-  db.exec("ALTER TABLE guardians ADD COLUMN isTeacher INTEGER DEFAULT 0");
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE guardians ADD COLUMN assignedRoomIds TEXT");
-} catch (e) {}
-
-// Migration for children table
-try {
-  db.exec("ALTER TABLE children ADD COLUMN kinship TEXT");
-} catch (e) {}
+  // Migration for children table
+  try {
+    db.exec("ALTER TABLE children ADD COLUMN kinship TEXT");
+  } catch (e) {}
+}
 
 // Helper for Firestore with timeout
 const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
@@ -368,11 +382,19 @@ app.use(express.json());
       }
       if (db) {
         const data = db.prepare("SELECT * FROM attendance ORDER BY created_at DESC").all();
-        // Parse counts JSON
-        const parsedData = data.map((item: any) => ({
-          ...item,
-          counts: JSON.parse(item.counts)
-        }));
+        // Parse counts JSON safely
+        const parsedData = data.map((item: any) => {
+          let parsedCounts = {};
+          try {
+            parsedCounts = typeof item.counts === 'string' ? JSON.parse(item.counts) : (item.counts || {});
+          } catch (e) {
+            console.error("Error parsing attendance counts for ID:", item.id, e);
+          }
+          return {
+            ...item,
+            counts: parsedCounts
+          };
+        });
         return res.json(parsedData);
       }
       res.status(503).json({ error: "Database not available and Firestore not configured" });
@@ -404,11 +426,19 @@ app.use(express.json());
 
       if (firestore) {
         try {
+          let parsedCounts = counts;
+          if (typeof counts === 'string') {
+            try {
+              parsedCounts = JSON.parse(counts);
+            } catch (e) {
+              console.error("Error parsing counts for Firestore save:", e);
+            }
+          }
           const docRef = await withTimeout(firestore.collection("attendance").add({
             ...attendanceData,
-            counts: typeof counts === 'string' ? JSON.parse(counts) : counts
+            counts: parsedCounts
           }));
-          finalAttendance = { id: docRef.id, ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+          finalAttendance = { id: docRef.id, ...attendanceData, counts: parsedCounts };
           savedToFirestore = true;
         } catch (fsError) {
           console.error("Firestore save attendance failed, falling back to SQLite:", fsError);
@@ -421,7 +451,16 @@ app.use(express.json());
           INSERT INTO attendance (date, period, counts, responsible, notes)
           VALUES (?, ?, ?, ?, ?)
         `).run(date, period, attendanceData.counts, attendanceData.responsible, attendanceData.notes);
-        finalAttendance = { id: Number(info.lastInsertRowid), ...attendanceData, counts: typeof counts === 'string' ? JSON.parse(counts) : counts };
+        
+        let parsedCounts = counts;
+        if (typeof counts === 'string') {
+          try {
+            parsedCounts = JSON.parse(counts);
+          } catch (e) {
+            console.error("Error parsing counts for finalAttendance response:", e);
+          }
+        }
+        finalAttendance = { id: Number(info.lastInsertRowid), ...attendanceData, counts: parsedCounts };
       }
       
       broadcast({ type: "NEW_ATTENDANCE", attendance: finalAttendance });
@@ -594,9 +633,15 @@ app.use(express.json());
   // Kids Ministry API Routes
   app.get("/api/guardians", (req, res) => {
     try {
-      if (!db) return res.status(503).json({ error: "Database not available" });
-      res.json(db.prepare("SELECT * FROM guardians").all());
+      if (!db) {
+        console.warn("Attempted to fetch guardians but SQLite is not available");
+        return res.status(503).json({ error: "Database not available" });
+      }
+      const guardians = db.prepare("SELECT * FROM guardians").all();
+      console.log(`Fetched ${guardians.length} guardians from SQLite`);
+      res.json(guardians);
     } catch (error) {
+      console.error("Failed to fetch guardians from SQLite:", error);
       res.status(500).json({ error: "Failed to fetch guardians" });
     }
   });
@@ -653,8 +698,11 @@ app.use(express.json());
   app.get("/api/children", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      res.json(db.prepare("SELECT * FROM children").all());
+      const children = db.prepare("SELECT * FROM children").all();
+      console.log(`Fetched ${children.length} children from SQLite`);
+      res.json(children);
     } catch (error) {
+      console.error("Failed to fetch children from SQLite:", error);
       res.status(500).json({ error: "Failed to fetch children" });
     }
   });
@@ -710,8 +758,11 @@ app.use(express.json());
   app.get("/api/rooms", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      res.json(db.prepare("SELECT * FROM rooms").all());
+      const rooms = db.prepare("SELECT * FROM rooms").all();
+      console.log(`Fetched ${rooms.length} rooms from SQLite`);
+      res.json(rooms);
     } catch (error) {
+      console.error("Failed to fetch rooms from SQLite:", error);
       res.status(500).json({ error: "Failed to fetch rooms" });
     }
   });
@@ -762,8 +813,11 @@ app.use(express.json());
   app.get("/api/kids_checkins", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });
-      res.json(db.prepare("SELECT * FROM kids_checkins").all());
+      const checkins = db.prepare("SELECT * FROM kids_checkins").all();
+      console.log(`Fetched ${checkins.length} checkins from SQLite`);
+      res.json(checkins);
     } catch (error) {
+      console.error("Failed to fetch checkins from SQLite:", error);
       res.status(500).json({ error: "Failed to fetch checkins" });
     }
   });

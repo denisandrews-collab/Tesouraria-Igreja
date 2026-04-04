@@ -1894,7 +1894,12 @@ export default function App() {
 
       await fetchKidsFromAPI();
     } catch (error: any) {
-      console.error("Error fetching data:", error);
+      console.error("Error fetching data:", {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        error
+      });
       if (locations.length === 0) {
         setLocations([{ id: 'error-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
       }
@@ -4618,8 +4623,17 @@ if (isPublicRegistration) {
                     </button>
                     <button 
                       onClick={() => {
-                        const emailInput = (document.querySelector('input[name="email"]') as HTMLInputElement)?.value;
-                        handleForgotPassword(emailInput);
+                        try {
+                          const emailInput = document.querySelector('input[name="email"]');
+                          if (emailInput instanceof HTMLInputElement) {
+                            handleForgotPassword(emailInput.value);
+                          } else {
+                            addNotification("warning", "Por favor, insira seu e-mail.", "E-mail necessário");
+                          }
+                        } catch (e) {
+                          console.error("Error accessing email input:", e);
+                          addNotification("error", "Erro ao acessar o campo de e-mail.", "Erro");
+                        }
                       }}
                       className="w-full py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-bold uppercase tracking-widest hover:border-indigo-200 hover:text-indigo-600 transition-all"
                     >
@@ -8543,6 +8557,7 @@ if (!user) {
 
                     {/* Danger Zone */}
                     <div className="mt-8 pt-8 border-t border-slate-100 space-y-6">
+                    </div>
                   </div>
                 </section>
               )}

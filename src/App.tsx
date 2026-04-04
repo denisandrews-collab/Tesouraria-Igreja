@@ -2085,6 +2085,15 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    const shouldReset = localStorage.getItem("autoResetKids") === "true";
+    if (shouldReset && userRole === "master") {
+      console.log("Auto-resetting Kids Ministry database as requested...");
+      resetKidsDatabase();
+      localStorage.removeItem("autoResetKids");
+    }
+  }, [userRole]);
+
   const resetKidsDatabase = async () => {
     if (userRole !== "master") {
       addNotification("error", "Apenas administradores podem resetar o banco de dados.");

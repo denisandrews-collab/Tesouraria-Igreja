@@ -687,6 +687,8 @@ export default function App() {
   const [entryToReverse, setEntryToReverse] = useState<string | number | null>(null);
   const [showDeleteLocationConfirm, setShowDeleteLocationConfirm] = useState<string | number | null>(null);
   const [showDeleteGuardianConfirm, setShowDeleteGuardianConfirm] = useState<string | null>(null);
+  const [showDeleteChildConfirm, setShowDeleteChildConfirm] = useState<string | null>(null);
+  const [showResetKidsConfirm, setShowResetKidsConfirm] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [attendanceEntries, setAttendanceEntries] = useState<Attendance[]>([]);
   const [locations, setLocations] = useState<Location[]>([
@@ -749,7 +751,6 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isMobileCheckin, setIsMobileCheckin] = useState(false);
   const [isPublicRegistration, setIsPublicRegistration] = useState(false);
-  const [showDeleteChildConfirm, setShowDeleteChildConfirm] = useState<string | null>(null);
   const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState<string | null>(null);
   const [showDeleteRoomConfirm, setShowDeleteRoomConfirm] = useState<string | null>(null);
   const [isRoomLeader, setIsRoomLeader] = useState(false);
@@ -1741,15 +1742,19 @@ export default function App() {
             let roomsData: Room[] = [];
 
             try {
+              console.log("Fetching kids data from Firestore...");
               if (hasAdminRole) {
-                const querySnapshotGuardians = await getDocsFromServer(collection(db, "guardians"));
-                guardiansData = querySnapshotGuardians.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
-                
-                const querySnapshotChildren = await getDocsFromServer(collection(db, "children"));
-                childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                const [guardiansSnap, childrenSnap, checkinsSnap, roomsSnap] = await Promise.all([
+                  getDocsFromServer(collection(db, "guardians")),
+                  getDocsFromServer(collection(db, "children")),
+                  getDocsFromServer(collection(db, "kids_checkins")),
+                  getDocsFromServer(collection(db, "rooms"))
+                ]);
 
-                const querySnapshotKidsCheckIns = await getDocsFromServer(collection(db, "kids_checkins"));
-                checkinsData = querySnapshotKidsCheckIns.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+                guardiansData = guardiansSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Guardian[];
+                childrenData = childrenSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                checkinsData = checkinsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+                roomsData = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
               } else {
                 // Regular user: only fetch their own data
                 const guardianDoc = await getDocFromServer(doc(db, "guardians", auth.currentUser.uid));
@@ -1757,34 +1762,32 @@ export default function App() {
                   guardiansData = [{ id: guardianDoc.id, ...guardianDoc.data() } as Guardian];
                 }
                 
-                const qChildren = query(collection(db, "children"), where("guardianId", "==", auth.currentUser.uid));
-                const querySnapshotChildren = await getDocsFromServer(qChildren);
-                childrenData = querySnapshotChildren.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
-                
-                // Also check for guardianIds array
-                const qChildren2 = query(collection(db, "children"), where("guardianIds", "array-contains", auth.currentUser.uid));
-                const querySnapshotChildren2 = await getDocsFromServer(qChildren2);
-                const childrenData2 = querySnapshotChildren2.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
-                
-                // Merge and unique
-                childrenData = Array.from(new Map([...childrenData, ...childrenData2].map(c => [c.id, c])).values());
+                const [qChildrenSnap, qChildren2Snap, qCheckinsSnap, roomsSnap] = await Promise.all([
+                  getDocsFromServer(query(collection(db, "children"), where("guardianId", "==", auth.currentUser.uid))),
+                  getDocsFromServer(query(collection(db, "children"), where("guardianIds", "array-contains", auth.currentUser.uid))),
+                  getDocsFromServer(query(collection(db, "kids_checkins"), where("guardianId", "==", auth.currentUser.uid))),
+                  getDocsFromServer(collection(db, "rooms"))
+                ]);
 
-                const qCheckins = query(collection(db, "kids_checkins"), where("guardianId", "==", auth.currentUser.uid));
-                const querySnapshotCheckins = await getDocsFromServer(qCheckins);
-                checkinsData = querySnapshotCheckins.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+                const children1 = qChildrenSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                const children2 = qChildren2Snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
+                childrenData = Array.from(new Map([...children1, ...children2].map(c => [c.id, c])).values());
+                checkinsData = qCheckinsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
+                roomsData = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
               }
 
-              // Rooms are public
-              const querySnapshotRooms = await getDocsFromServer(collection(db, "rooms"));
-              roomsData = querySnapshotRooms.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
+              console.log(`Firestore kids data: ${guardiansData.length} guardians, ${childrenData.length} children`);
 
               setGuardians(Array.from(new Map(guardiansData.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[]);
               setChildren(Array.from(new Map(childrenData.map((c: Child) => [String(c.id), c])).values()) as Child[]);
               setKidsCheckIns(checkinsData);
               setRooms(roomsData);
             } catch (kidsError) {
-              console.error("Error fetching kids data from Firestore:", kidsError);
+              console.error("Error fetching kids data from Firestore, falling back to API:", kidsError);
+              await fetchKidsFromAPI();
             }
+          } else {
+            await fetchKidsFromAPI();
           }
           
           setLoading(false);
@@ -1843,44 +1846,7 @@ export default function App() {
         setLocations([{ id: 'local-default', name: "Salão Principal", is_default: 1, created_at: new Date().toISOString() }]);
       }
 
-      // Kids Ministry Fallbacks
-      const guardiansRes = await fetch(`/api/guardians?t=${Date.now()}`);
-      if (guardiansRes.ok) {
-        const data = await guardiansRes.json();
-        if (Array.isArray(data)) {
-          const parsedGuardians = data.map((g: any) => ({
-            ...g,
-            isTeacher: g.isTeacher === 1,
-            assignedRoomIds: typeof g.assignedRoomIds === 'string' ? JSON.parse(g.assignedRoomIds) : (g.assignedRoomIds || [])
-          }));
-          const uniqueGuardians = Array.from(new Map(parsedGuardians.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[];
-          setGuardians(uniqueGuardians);
-        }
-      }
-
-      const childrenRes = await fetch(`/api/children?t=${Date.now()}`);
-      if (childrenRes.ok) {
-        const data = await childrenRes.json();
-        if (Array.isArray(data)) {
-          const parsedChildren = data.map((c: any) => ({
-            ...c,
-            guardianIds: typeof c.guardianIds === 'string' ? JSON.parse(c.guardianIds) : (c.guardianIds || [])
-          }));
-          setChildren(parsedChildren);
-        }
-      }
-
-      const roomsRes = await fetch(`/api/rooms?t=${Date.now()}`);
-      if (roomsRes.ok) {
-        const data = await roomsRes.json();
-        if (Array.isArray(data)) setRooms(data);
-      }
-
-      const checkinsRes = await fetch(`/api/kids_checkins?t=${Date.now()}`);
-      if (checkinsRes.ok) {
-        const data = await checkinsRes.json();
-        if (Array.isArray(data)) setKidsCheckIns(data);
-      }
+      await fetchKidsFromAPI();
     } catch (error: any) {
       console.error("Error fetching data:", error);
       if (locations.length === 0) {
@@ -1900,6 +1866,50 @@ export default function App() {
         }
         return prev;
       });
+    }
+  };
+
+  const fetchKidsFromAPI = async () => {
+    try {
+      console.log("Fetching kids data from API...");
+      const [guardiansRes, childrenRes, checkinsRes, roomsRes] = await Promise.all([
+        fetch(`/api/guardians?t=${Date.now()}`),
+        fetch(`/api/children?t=${Date.now()}`),
+        fetch(`/api/kids_checkins?t=${Date.now()}`),
+        fetch(`/api/rooms?t=${Date.now()}`)
+      ]);
+
+      if (guardiansRes.ok) {
+        const data = await guardiansRes.json();
+        if (Array.isArray(data)) {
+          const parsedGuardians = data.map((g: any) => ({
+            ...g,
+            isTeacher: g.isTeacher === 1,
+            assignedRoomIds: typeof g.assignedRoomIds === 'string' ? JSON.parse(g.assignedRoomIds) : (g.assignedRoomIds || [])
+          }));
+          setGuardians(Array.from(new Map(parsedGuardians.map((g: Guardian) => [String(g.id), g])).values()) as Guardian[]);
+        }
+      }
+      if (childrenRes.ok) {
+        const data = await childrenRes.json();
+        if (Array.isArray(data)) {
+          const parsedChildren = data.map((c: any) => ({
+            ...c,
+            guardianIds: typeof c.guardianIds === 'string' ? JSON.parse(c.guardianIds) : (c.guardianIds || [])
+          }));
+          setChildren(parsedChildren);
+        }
+      }
+      if (checkinsRes.ok) {
+        const data = await checkinsRes.json();
+        if (Array.isArray(data)) setKidsCheckIns(data);
+      }
+      if (roomsRes.ok) {
+        const data = await roomsRes.json();
+        if (Array.isArray(data)) setRooms(data);
+      }
+    } catch (apiErr) {
+      console.error("Error fetching kids data from API:", apiErr);
     }
   };
 
@@ -2075,6 +2085,48 @@ export default function App() {
     }
   };
 
+  const resetKidsDatabase = async () => {
+    if (userRole !== "master") {
+      addNotification("error", "Apenas administradores podem resetar o banco de dados.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      
+      // 1. Delete from Firestore
+      if (db && isFirebaseEnabled) {
+        const collections = ["children", "guardians", "kids_checkins", "rooms"];
+        for (const collName of collections) {
+          try {
+            const q = query(collection(db, collName));
+            const snapshot = await getDocs(q);
+            const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+            await Promise.all(deletePromises);
+            console.log(`Coleção ${collName} limpa no Firestore.`);
+          } catch (fsErr) {
+            console.error(`Erro ao limpar coleção ${collName} no Firestore:`, fsErr);
+          }
+        }
+      }
+
+      // 2. Delete from API (SQLite)
+      const response = await fetch("/api/kids/reset", { method: "POST" });
+      if (!response.ok) {
+        throw new Error("Falha ao resetar banco de dados local.");
+      }
+
+      addNotification("success", "Banco de dados do Kids resetado com sucesso!");
+      await fetchEntries();
+      setShowResetKidsConfirm(false);
+    } catch (error) {
+      console.error("Error resetting kids database:", error);
+      addNotification("error", "Erro ao resetar banco de dados.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const deleteChild = async (id: string) => {
     const childToDelete = children.find(c => c.id === id);
     if (!childToDelete) return;
@@ -2087,6 +2139,7 @@ export default function App() {
 
     try {
       setSubmitting(true);
+      console.log("Deleting child:", id);
       
       // Optimistic update
       setChildren(prev => prev.filter(c => c.id !== id));
@@ -2096,6 +2149,7 @@ export default function App() {
         try {
           await deleteDoc(doc(db, "children", id));
           firestoreDeleted = true;
+          console.log("Child deleted from Firestore:", id);
         } catch (fsError) {
           console.error("Firestore delete child failed:", fsError);
         }
@@ -2105,7 +2159,10 @@ export default function App() {
       let apiDeleted = false;
       try {
         const response = await fetch(`/api/children/${id}`, { method: "DELETE" });
-        if (response.ok) apiDeleted = true;
+        if (response.ok) {
+          apiDeleted = true;
+          console.log("Child deleted from API:", id);
+        }
       } catch (apiError) {
         console.warn("API delete child failed:", apiError);
       }
@@ -8787,6 +8844,31 @@ if (!user) {
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1" />
                       </button>
+
+                      {userRole === "master" && (
+                        <div className="pt-6 border-t border-slate-100">
+                          <h4 className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-4">Zona de Perigo</h4>
+                          <div className="p-6 bg-rose-50 rounded-3xl border border-rose-100 space-y-4">
+                            <div className="flex items-start gap-4">
+                              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-rose-600 shadow-sm shrink-0">
+                                <AlertTriangle className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-slate-900">Resetar Banco de Dados Kids</p>
+                                <p className="text-[10px] text-slate-500 font-medium leading-relaxed mt-1">
+                                  Isso apagará todas as crianças, responsáveis, salas e check-ins. Os dados financeiros e de usuários do sistema não serão afetados.
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setShowResetKidsConfirm(true)}
+                              className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100"
+                            >
+                              Resetar Dados do Kids
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -10208,6 +10290,48 @@ if (!user) {
                   className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Confirmar Exclusão"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showResetKidsConfirm && (
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowResetKidsConfirm(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mx-auto mb-6">
+                <AlertTriangle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2">Resetar Banco Kids?</h2>
+              <p className="text-slate-500 mb-8 font-medium">
+                ATENÇÃO: Isso excluirá PERMANENTEMENTE todas as crianças, responsáveis, salas e check-ins. Esta ação é irreversível.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setShowResetKidsConfirm(false)}
+                  disabled={submitting}
+                  className="py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={resetKidsDatabase}
+                  disabled={submitting}
+                  className="py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : "RESETAR TUDO"}
                 </button>
               </div>
             </motion.div>

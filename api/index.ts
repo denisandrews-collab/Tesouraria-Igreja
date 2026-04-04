@@ -803,6 +803,20 @@ app.use(express.json());
     }
   });
 
+  app.post("/api/kids/reset", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      db.prepare("DELETE FROM guardians").run();
+      db.prepare("DELETE FROM children").run();
+      db.prepare("DELETE FROM kids_checkins").run();
+      db.prepare("DELETE FROM rooms").run();
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resetting kids database:", error);
+      res.status(500).json({ error: "Failed to reset kids database" });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

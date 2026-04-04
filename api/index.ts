@@ -803,6 +803,18 @@ app.use(express.json());
     }
   });
 
+  app.delete("/api/kids_checkins/:id", (req, res) => {
+    try {
+      if (!db) return res.status(503).json({ error: "Database not available" });
+      const { id } = req.params;
+      db.prepare("DELETE FROM kids_checkins WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting check-in:", error);
+      res.status(500).json({ error: "Erro interno ao excluir check-in." });
+    }
+  });
+
   app.post("/api/kids/reset", (req, res) => {
     try {
       if (!db) return res.status(503).json({ error: "Database not available" });

@@ -75,9 +75,10 @@ import {
   PhoneCall,
   CreditCard,
   Chrome,
-  Smartphone
+  Smartphone,
+  GripVertical
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, Reorder } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
 import autoTable from "jspdf-autotable";
 import JsBarcode from 'jsbarcode';
@@ -231,6 +232,7 @@ interface Room {
   minAge?: number;
   maxAge?: number;
   created_at: string;
+  order?: number;
 }
 
 const SYSTEM_TABS = [
@@ -1801,6 +1803,7 @@ export default function App() {
                 childrenData = childrenSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
                 checkinsData = checkinsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
                 roomsData = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
+                roomsData.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
               } else {
                 // Regular user: only fetch their own data
                 const guardianDoc = await getDocFromServer(doc(db, "guardians", auth.currentUser.uid));
@@ -1814,12 +1817,13 @@ export default function App() {
                   getDocsFromServer(query(collection(db, "kids_checkins"), where("guardianId", "==", auth.currentUser.uid))),
                   getDocsFromServer(collection(db, "rooms"))
                 ]);
-
+ 
                 const children1 = qChildrenSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
                 const children2 = qChildren2Snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Child[];
                 childrenData = Array.from(new Map([...children1, ...children2].map(c => [c.id, c])).values());
                 checkinsData = qCheckinsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as KidsCheckIn[];
                 roomsData = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Room[];
+                roomsData.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
               }
 
               console.log(`Firestore kids data: ${guardiansData.length} guardians, ${childrenData.length} children`);
@@ -2184,6 +2188,22 @@ export default function App() {
       addNotification("error", "Erro ao resetar banco de dados.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleReorderRooms = async (newRooms: Room[]) => {
+    setRooms(newRooms);
+    
+    if (db && isFirebaseEnabled) {
+      try {
+        const updates = newRooms.map((room, index) => {
+          const roomRef = doc(db, "rooms", room.id);
+          return updateDoc(roomRef, { order: index });
+        });
+        await Promise.all(updates);
+      } catch (error) {
+        console.error("Error updating rooms order:", error);
+      }
     }
   };
 
@@ -8630,32 +8650,46 @@ if (!user) {
                       Nova Sala
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Reorder.Group
+                    axis="y"
+                    values={rooms}
+                    onReorder={handleReorderRooms}
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                  >
                     {rooms.map(room => {
                       const childrenInRoom = kidsCheckIns.filter(ci => ci.room === room.name && ci.status === 'checked-in').length;
                       return (
-                        <div key={room.id} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
+                        <Reorder.Item
+                          key={room.id}
+                          value={room}
+                          className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden cursor-grab active:cursor-grabbing"
+                        >
                           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 rounded-bl-[4rem] -mr-12 -mt-12 transition-all group-hover:bg-indigo-100/30" />
                           
-                          {userRole === "master" && (
-                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
-                              <button
-                                onClick={() => {
-                                  setEditingRoom(room);
-                                  setShowEditRoomModal(true);
-                                }}
-                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setShowDeleteRoomConfirm(room.id)}
-                                className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                            {userRole === "master" && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setEditingRoom(room);
+                                    setShowEditRoomModal(true);
+                                  }}
+                                  className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setShowDeleteRoomConfirm(room.id)}
+                                  className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-rose-600 hover:scale-110 transition-all border border-slate-100"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                            <div className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm border border-slate-100">
+                              <GripVertical className="w-4 h-4" />
                             </div>
-                          )}
+                          </div>
 
                           <div className="flex items-center justify-between mb-6 relative">
                             <div className="flex items-center gap-4">
@@ -8702,10 +8736,10 @@ if (!user) {
                               <span className="text-xs font-bold text-slate-700">{room.minAge || 0} - {room.maxAge || 10} anos</span>
                             </div>
                           </div>
-                        </div>
+                        </Reorder.Item>
                       );
                     })}
-                  </div>
+                  </Reorder.Group>
                 </section>
               )}
 

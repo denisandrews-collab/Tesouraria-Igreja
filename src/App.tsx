@@ -100,6 +100,38 @@ import {
   getDocsFromServer,
   getDocFromServer
 } from "firebase/firestore";
+
+// CPF Utility Functions
+const formatCPF = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  return digits
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d{1,2})/, "$1-$2")
+    .replace(/(-\d{2})\d+?$/, "$1");
+};
+
+const validateCPF = (cpf: string) => {
+  const digits = cpf.replace(/\D/g, "");
+  if (digits.length !== 11) return false;
+  if (/^(\d)\1+$/.test(digits)) return false;
+  
+  let sum = 0;
+  let remainder;
+  
+  for (let i = 1; i <= 9; i++) sum = sum + parseInt(digits.substring(i - 1, i)) * (11 - i);
+  remainder = (sum * 10) % 11;
+  if ((remainder === 10) || (remainder === 11)) remainder = 0;
+  if (remainder !== parseInt(digits.substring(9, 10))) return false;
+  
+  sum = 0;
+  for (let i = 1; i <= 10; i++) sum = sum + parseInt(digits.substring(i - 1, i)) * (12 - i);
+  remainder = (sum * 10) % 11;
+  if ((remainder === 10) || (remainder === 11)) remainder = 0;
+  if (remainder !== parseInt(digits.substring(10, 11))) return false;
+  
+  return true;
+};
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -716,6 +748,10 @@ export default function App() {
   const [inviteName, setInviteName] = useState("");
   const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
   const [invitationData, setInvitationData] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [registrationCPF, setRegistrationCPF] = useState("");
+  const [mobileRegistrationCPF, setMobileRegistrationCPF] = useState("");
+  const [editingGuardianCPF, setEditingGuardianCPF] = useState("");
+  const [addGuardianCPF, setAddGuardianCPF] = useState("");
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
   const [showEditGuardianModal, setShowEditGuardianModal] = useState(false);
@@ -1104,9 +1140,11 @@ export default function App() {
     e.preventDefault();
     // Instead of registering here with limited data, redirect to the full registration form
     if (isMobileCheckin) {
+      setMobileRegistrationCPF("");
       setMobileStep("registration-guardian");
     } else {
       setIsPublicRegistration(true);
+      setRegistrationCPF("");
       setRegistrationStep("guardian");
     }
     setIsRegistering(false);
@@ -1152,11 +1190,14 @@ export default function App() {
             
             // Redireciona para o cadastro baseado no contexto atual
             if (isPublicRegistration) {
+              setRegistrationCPF("");
               setRegistrationStep("guardian");
             } else if (isMobileCheckin) {
+              setMobileRegistrationCPF("");
               setMobileStep("registration-guardian");
             } else {
               setIsPublicRegistration(true);
+              setRegistrationCPF("");
               setRegistrationStep("guardian");
             }
             setIsLoggingIn(false);
@@ -1182,9 +1223,11 @@ export default function App() {
       } else if (error.code === "auth/user-not-found") {
         addNotification("warning", "E-mail não encontrado. Redirecionando para o cadastro...");
         if (isMobileCheckin) {
+          setMobileRegistrationCPF("");
           setMobileStep("registration-guardian");
         } else {
           setIsPublicRegistration(true);
+          setRegistrationCPF("");
           setRegistrationStep("guardian");
         }
         return;
@@ -2429,6 +2472,13 @@ export default function App() {
       setSubmitting(true);
       const { password, ...data } = guardianData;
       
+      // CPF Validation
+      if (data.cpf && !validateCPF(data.cpf)) {
+        addNotification("error", "CPF inválido. Por favor, verifique os números digitados.");
+        setSubmitting(false);
+        return null;
+      }
+      
       // Check if phone, CPF, or Name+Phone already exists in local state
       const existingByPhone = guardians.find(g => g.phone === data.phone);
       const existingByCPF = data.cpf ? guardians.find(g => g.cpf === data.cpf) : null;
@@ -2731,6 +2781,14 @@ export default function App() {
   const handleUpdateGuardian = async (id: string, guardianData: Partial<Guardian>) => {
     try {
       setSubmitting(true);
+      
+      // CPF Validation
+      if (guardianData.cpf && !validateCPF(guardianData.cpf)) {
+        addNotification("error", "CPF inválido. Por favor, verifique os números digitados.");
+        setSubmitting(false);
+        return;
+      }
+
       if (db && isFirebaseEnabled) {
         try {
           await updateDoc(doc(db, "guardians", id), guardianData);
@@ -4389,7 +4447,14 @@ if (isPublicRegistration) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF do Responsável</label>
                     <div className="relative">
                       <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                      <input name="cpf" required className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="000.000.000-00" />
+                      <input 
+                        name="cpf" 
+                        required 
+                        value={registrationCPF}
+                        onChange={(e) => setRegistrationCPF(formatCPF(e.target.value))}
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" 
+                        placeholder="000.000.000-00" 
+                      />
                     </div>
                   </div>
                   
@@ -4963,6 +5028,7 @@ if (isMobileCheckin) {
                           <button 
                             onClick={() => {
                               setEditingGuardian(selectedGuardian);
+                              setEditingGuardianCPF(selectedGuardian.cpf || "");
                               setShowEditGuardianModal(true);
                             }}
                             className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-colors"
@@ -5241,6 +5307,8 @@ if (isMobileCheckin) {
                         <input 
                           name="cpf" 
                           required 
+                          value={mobileRegistrationCPF}
+                          onChange={(e) => setMobileRegistrationCPF(formatCPF(e.target.value))}
                           placeholder="000.000.000-00"
                           className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-medium" 
                         />
@@ -8561,7 +8629,10 @@ if (!user) {
                         Convidar
                       </button>
                       <button
-                        onClick={() => setShowAddGuardianModal(true)}
+                        onClick={() => {
+                          setAddGuardianCPF("");
+                          setShowAddGuardianModal(true);
+                        }}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all"
                       >
                         <Plus className="w-4 h-4" />
@@ -8579,6 +8650,7 @@ if (!user) {
                             <button
                               onClick={() => {
                                 setEditingGuardian(guardian);
+                                setEditingGuardianCPF(guardian.cpf || "");
                                 setShowEditGuardianModal(true);
                               }}
                               className="p-2.5 bg-white/80 backdrop-blur-sm text-slate-400 rounded-2xl shadow-sm hover:text-indigo-600 hover:scale-110 transition-all border border-slate-100"
@@ -9367,6 +9439,8 @@ if (!user) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
                     <input
                       name="cpf"
+                      value={addGuardianCPF}
+                      onChange={(e) => setAddGuardianCPF(formatCPF(e.target.value))}
                       type="text"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
                       placeholder="000.000.000-00"
@@ -9786,7 +9860,8 @@ if (!user) {
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
                     <input
                       name="cpf"
-                      defaultValue={editingGuardian.cpf}
+                      value={editingGuardianCPF}
+                      onChange={(e) => setEditingGuardianCPF(formatCPF(e.target.value))}
                       type="text"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-medium"
                     />
